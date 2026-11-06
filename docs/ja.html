@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CAT42 請求 — ガイドを持っている方へ</title>
+<meta name="description" content="42 Chain のガイド NFT で CAT42 を請求できます。未請求分をワンタップでまとめて受け取れます。">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <span class="lang-switch"><label><span id="langLabel">Language / 言語</span> <select id="langSel"><option value="en">English</option><option value="ja" selected>日本語</option></select></label></span>
+  <div class="brand">
+    <img id="tokenIcon" src="https://raw.githubusercontent.com/maze369/token-icons/main/icons/0x7386719ebbbeb4d810ff89027bfb8a1cdf696310.jpg" alt="CAT42" width="44" height="44">
+    <span class="brand-emoji" id="tokenFallback" hidden>🐱</span>
+    <div>
+      <h1 id="pageTitle">CAT42 Claim</h1>
+      <p class="sub" id="pageSub">For Guide holders</p>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- How it works -->
+  <section class="panel" id="howPanel">
+    <h2 id="howTitle">How it works</h2>
+    <ol class="steps">
+      <li id="step1">Connect your wallet</li>
+      <li id="step2">We find your Guides</li>
+      <li id="step3">Tap once to claim</li>
+    </ol>
+    <p class="note" id="howNote"></p>
+  </section>
+
+  <!-- Global stats (no wallet needed) -->
+  <section class="panel" id="statsPanel">
+    <h2 id="statsTitle">Right now</h2>
+    <div class="info-grid">
+      <div class="info-card">
+        <div class="i-label" id="statClaimsLabel">Claims so far</div>
+        <div class="i-value" id="statClaims">—</div>
+      </div>
+      <div class="info-card">
+        <div class="i-label" id="statVaultLabel">CAT42 left to share</div>
+        <div class="i-value" id="statVault">—</div>
+      </div>
+      <div class="info-card">
+        <div class="i-label" id="statGuidesLabel">Guides issued</div>
+        <div class="i-value" id="statGuides">—</div>
+      </div>
+    </div>
+    <p class="note" id="statsNote"></p>
+    <p class="result" id="statsError" role="status"></p>
+  </section>
+
+  <!-- No wallet notice -->
+  <section class="panel warn" id="noWalletPanel" hidden>
+    <h2 id="noWalletTitle">You need a wallet app</h2>
+    <p id="noWalletText"></p>
+  </section>
+
+  <!-- Connect -->
+  <section class="panel" id="connectPanel">
+    <div id="connectBox">
+      <button type="button" id="connectBtn" class="big-btn">Connect wallet</button>
+      <p class="note" id="connectNote"></p>
+    </div>
+    <div id="accountBox" hidden>
+      <div class="i-label" id="yourWalletLabel">Your wallet</div>
+      <div class="mono" id="walletAddr">—</div>
+      <div class="row">
+        <span class="note" id="catBalanceLine"></span>
+      </div>
+      <div class="row">
+        <button type="button" id="rescanBtn" class="small-btn">Check again</button>
+        <button type="button" id="switchChainBtn" class="small-btn" hidden>Switch to 42 Chain</button>
+      </div>
+    </div>
+    <p class="result" id="connectResult" role="status"></p>
+  </section>
+
+  <!-- Main claim panel -->
+  <section class="panel" id="mainPanel" hidden>
+    <div class="total-box">
+      <div class="i-label" id="totalLabel">CAT42 you can claim</div>
+      <div class="total-value"><span id="totalAmount">—</span> <span class="unit">CAT42</span></div>
+      <p class="note" id="totalNote"></p>
+    </div>
+
+    <div class="counts">
+      <div class="count"><span class="count-num" id="ownedCount">—</span><span class="count-label" id="ownedLabel">Guides you have</span></div>
+      <div class="count"><span class="count-num" id="unclaimedCount">—</span><span class="count-label" id="unclaimedLabel">Not claimed yet</span></div>
+      <div class="count"><span class="count-num" id="claimedCount">—</span><span class="count-label" id="claimedLabel">Already claimed</span></div>
+    </div>
+
+    <p class="note warn-note" id="mismatchNote" hidden></p>
+    <p class="progress" id="scanProgress" role="status"></p>
+
+    <button type="button" id="claimBtn" class="big-btn claim" disabled>Claim all</button>
+    <p class="progress" id="claimProgress" role="status"></p>
+    <div id="claimResult" class="result" role="status"></div>
+
+    <h3 id="unclaimedTitle">Guides you can claim for</h3>
+    <div id="unclaimedList"></div>
+    <p class="note" id="emptyListText" hidden></p>
+
+    <details id="claimedDetails" hidden>
+      <summary id="claimedSummary">Already claimed</summary>
+      <div id="claimedList"></div>
+    </details>
+  </section>
+
+  <!-- Safety -->
+  <section class="panel">
+    <h2 id="safeTitle">Please keep this safe</h2>
+    <ul class="notes">
+      <li id="safe1"></li>
+      <li id="safe2"></li>
+      <li id="safe3"></li>
+    </ul>
+    <p class="note mono-small" id="contractLine"></p>
+  </section>
+</main>
+
+<footer>
+  <p id="footerText"></p>
+</footer>
+
+<script src="app.js?v=1"></script>
+</body>
+</html>
