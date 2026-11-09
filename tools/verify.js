@@ -152,7 +152,7 @@ const wordUint = (w) => BigInt("0x" + w);
     for (const id of ["feeBox", "feeTitle", "feeNote", "feeEstimate", "feePanel", "feePendingTitle", "feePendingText", "feeResumeBtn", "feeProgress", "feeResult"]) {
       check(`${shell} has #${id}`, html.includes(`id="${id}"`));
     }
-    check(`${shell} loads app.js?v=3`, html.includes("app.js?v=3"));
+    check(`${shell} loads app.js?v=4`, html.includes("app.js?v=4"));
   }
   check("swap route removed from app.js", !appJs.includes("swapExactTokensForTokens") && !appJs.includes("encodeApprove"));
   check("claim path gated on unlocked access", appJs.includes('state.access.status !== "unlocked"'));
@@ -162,6 +162,87 @@ const wordUint = (w) => BigInt("0x" + w);
   check("i18n ja feeNote: prepaid wording", appJs.includes("手数料を請求の前にいただいています"));
   check("i18n ja feeNote: no-refund disclosure", appJs.includes("戻ってきません"));
   check("i18n ja feeNote: estimate disclosure", appJs.includes("手数料は見込み額から計算します"));
+
+  // 12) ZAP faucet: decimal parsing (the Worker formats amounts as plain
+  // decimal strings in token units)
+  check("decimal '1' -> 1e18 wei", app.parseDecimalToWei("1") === E18);
+  check("decimal '0.5' -> 5e17 wei", app.parseDecimalToWei("0.5") === 5n * 10n ** 17n);
+  check("decimal '12.340' exact", app.parseDecimalToWei("12.340") === 1234n * 10n ** 16n);
+  check("decimal '0' -> 0", app.parseDecimalToWei("0") === 0n);
+  check("decimal junk -> null", app.parseDecimalToWei("1.2.3") === null && app.parseDecimalToWei("abc") === null && app.parseDecimalToWei("") === null);
+  check("decimal >18 places -> null", app.parseDecimalToWei("0.0000000000000000001") === null);
+  check("decimal non-string -> null", app.parseDecimalToWei(1) === null && app.parseDecimalToWei(null) === null);
+  check("formatZap trims zeros", app.formatZap(E18) === "1" && app.formatZap(15n * 10n ** 17n) === "1.5" && app.formatZap(0n) === "0");
+
+  // 13) ZAP faucet: /status parsing (shape from the live Worker contract)
+  const st = app.parseZapFaucetStatus({ ready: true, reason: null, faucetAddress: "0xabc", balance: "6.5", claimsLeft: 6, chain: "42", token: "zap", symbol: "ZAP", claimAmount: "1" });
+  check("status parsed", !!st && st.ready === true && st.symbol === "ZAP");
+  check("status balance -> wei string", st && st.balanceWei === (65n * 10n ** 17n).toString(), st && st.balanceWei);
+  check("status claimsLeft kept", st && st.claimsLeft === 6);
+  check("status claimAmount -> wei string", st && st.claimAmountWei === E18.toString());
+  check("status not-ready keeps reason", (() => { const s2 = app.parseZapFaucetStatus({ ready: false, reason: "faucet_low", balance: "0", claimsLeft: 0, claimAmount: "1" }); return !!s2 && s2.ready === false && s2.reason === "faucet_low"; })());
+  check("status missing claimAmount -> null", app.parseZapFaucetStatus({ ready: true, balance: "1" }) === null);
+  check("status null/garbage -> null", app.parseZapFaucetStatus(null) === null && app.parseZapFaucetStatus("x") === null);
+
+  // 14) ZAP faucet: LIVE read-only /status (no claim is ever POSTed here)
+  const live = await app.fetchZapFaucetStatus();
+  console.log("live ZAP faucet status:", JSON.stringify(live));
+  check("live faucet status readable", live !== null);
+  check("live faucet claim amount is 1 ZAP", live && live.claimAmountWei === E18.toString(), live && live.claimAmountWei);
+  check("live faucet claimsLeft is a number", live && typeof live.claimsLeft === "number" && live.claimsLeft >= 0, live && String(live.claimsLeft));
+  check("live faucet balance parses", live && live.balanceWei !== null && BigInt(live.balanceWei) >= 0n);
+
+  // 15) ZAP faucet: claim request shape + response parsing (stubbed fetch)
+  const ADDR = "0x1111111111111111111111111111111111111111";
+  check("claim body shape", JSON.stringify(app.buildZapClaimBody(ADDR)) === JSON.stringify({ chain: "42", token: "zap", address: ADDR }));
+  let seenReq = null;
+  const stubOk = async (url, init) => { seenReq = { url, init }; return { ok: true, status: 200, json: async () => ({ ok: true, txHash: "0xdeadbeef", amount: "1", explorerUrl: "https://scan.infinitedrive.xyz/tx/0xdeadbeef", chain: "42", token: "zap", symbol: "ZAP" }) }; };
+  const cres = await app.claimZapFaucet(ADDR, stubOk);
+  check("claim success parsed", cres.ok === true && cres.txHash === "0xdeadbeef" && cres.amount === "1" && cres.explorerUrl.endsWith("0xdeadbeef"));
+  check("claim POSTs to /claim", !!seenReq && seenReq.url === app.FAUCET_BASE + "/claim" && seenReq.init.method === "POST");
+  check("claim POST body is the claim shape", !!seenReq && seenReq.init.body === JSON.stringify({ chain: "42", token: "zap", address: ADDR }), seenReq && seenReq.init.body);
+  check("claim POST content-type json", !!seenReq && seenReq.init.headers["content-type"] === "application/json");
+
+  // 16) ZAP faucet: EVERY Worker rejection code maps to its own message
+  for (const code of app.FAUCET_ERR_CODES) {
+    const stubErr = async () => ({ ok: false, status: 429, json: async () => ({ ok: false, code, retryAfterSec: 3600 }) });
+    const er = await app.claimZapFaucet(ADDR, stubErr);
+    check(`claim error code kept: ${code}`, er.ok === false && er.code === code);
+    check(`error key distinct: ${code}`, app.faucetErrorKey(code) === "faucetErr_" + code);
+    check(`i18n has faucetErr_${code} in EN and JA`, appJs.split("faucetErr_" + code).length - 1 >= 2);
+  }
+  check("error key: unknown code -> failed", app.faucetErrorKey("something_new") === "faucetErr_failed");
+  check("error key: network distinct", app.faucetErrorKey("network") === "faucetErrNetwork");
+  check("i18n has faucetErrNetwork in EN and JA", appJs.split("faucetErrNetwork").length - 1 >= 2);
+  const stubThrow = async () => { throw new Error("offline"); };
+  const nres = await app.claimZapFaucet(ADDR, stubThrow);
+  check("claim fetch failure -> network code", nres.ok === false && nres.code === "network");
+  check("claim response: ok without fields still parses", (() => { const r = app.parseZapClaimResponse({ ok: true }); return r.ok === true && r.txHash === "" && r.explorerUrl === null; })());
+  check("claim response: no code -> failed", app.parseZapClaimResponse({ ok: false }).code === "failed" && app.parseZapClaimResponse(null).code === "failed");
+  check("cooldown codes detected", app.isCooldownCode("address_cooldown") && app.isCooldownCode("ip_cooldown") && !app.isCooldownCode("daily_limit"));
+  check("retryParts: 7d -> days", JSON.stringify(app.retryParts(7 * 86400)) === JSON.stringify({ unit: "days", n: 7 }));
+  check("retryParts: 2h -> hours", JSON.stringify(app.retryParts(7200)) === JSON.stringify({ unit: "hours", n: 2 }));
+  check("retryParts: 5m -> minutes", JSON.stringify(app.retryParts(300)) === JSON.stringify({ unit: "minutes", n: 5 }));
+
+  // 17) fee-gate re-evaluation after a faucet claim lands (balance + claimed)
+  let fg = app.gateAfterFaucetClaim({ unclaimedIds: [1, 2], feeCatWei: 10n, feeZapWei: 50n, zapBalanceWei: 30n, claimedWei: 20n, paidIds: null });
+  check("faucet re-eval: covered -> ready (burn offered)", fg.status === "ready" && fg.claimIds.length === 0);
+  fg = app.gateAfterFaucetClaim({ unclaimedIds: [1, 2], feeCatWei: 10n, feeZapWei: 50n, zapBalanceWei: 30n, claimedWei: 10n, paidIds: null });
+  check("faucet re-eval: still short, exact new shortfall", fg.status === "insufficient" && fg.shortfallWei === "10", fg.shortfallWei);
+  fg = app.gateAfterFaucetClaim({ unclaimedIds: [1, 2], feeCatWei: 10n, feeZapWei: 50n, zapBalanceWei: null, claimedWei: 10n, paidIds: null });
+  check("faucet re-eval: unknown balance stays unknown", fg.status === "insufficient" && fg.shortfallWei === null);
+  fg = app.gateAfterFaucetClaim({ unclaimedIds: [1, 2], feeCatWei: 10n, feeZapWei: null, zapBalanceWei: 0n, claimedWei: 10n, paidIds: [1, 2] });
+  check("faucet re-eval: paid record still honored", fg.status === "unlocked" && fg.claimIds.length === 2);
+
+  // 18) both shells carry the faucet card + the in-fee-panel claim button
+  for (const shell of ["en.html", "ja.html"]) {
+    const html = fs.readFileSync(path.join(__dirname, "..", "docs", shell), "utf8");
+    for (const id of ["faucetPanel", "faucetTitle", "faucetIntro", "faucetPoolLabel", "faucetPoolLine", "faucetClaimBtn", "faucetRefreshBtn", "faucetProgress", "faucetResult", "feeFaucetBtn"]) {
+      check(`${shell} has #${id}`, html.includes(`id="${id}"`));
+    }
+  }
+  check("app.js talks to the faucet Worker", appJs.includes("https://42-faucet.nepicobsv.workers.dev"));
+  check("shortfall no longer links out to the faucet site", !appJs.includes("github.io/42-faucet"));
 
   console.log(failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);

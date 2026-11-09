@@ -8,6 +8,11 @@ var GUIDE = "0xF349E469C474048DEd6F9b914309E76880ED1bbD";
 var ZAP = "0x89195Ca5C954b6f99b78f4A2Aa5435A75Dc5B256";
 var ROUTER = "0xBF07dFE35746894bAe373f63f4Bf2379F9BaFEc0"; // Infinite router (42 Chain)
 var BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
+/* ZAP faucet: the user's own 42-faucet Worker holds the faucet wallet and
+   sends 1 ZAP per claim; this page only asks, for the connected address.
+   GET /status?chain=42&token=zap -> pool state; POST /claim {chain, token,
+   address} -> { ok, txHash, amount, explorerUrl } | { ok:false, code }. */
+var FAUCET_BASE = "https://42-faucet.nepicobsv.workers.dev";
 /* Site fee (prepaid, ZAP only): before the claim unlocks, the user burns
    ZAP worth 5% of the estimated claim (preview total), converted at the
    live CAT42/ZAP quote. The claim button stays locked until the burn is
@@ -127,7 +132,36 @@ var I18N = {
     feeBurnRejected: "You cancelled in your wallet. Nothing was burned — tap the button when you are ready to pay the fee.",
     feeBurnFailed: "The burn did not go through, so nothing was charged. You can try again.",
     feeUnconfirmed: "The burn was sent, but we could not confirm it yet. Please tap the button below to check again — the fee will not be charged twice.",
-    faucetLinkText: "Open the 42 faucet"
+    faucetLinkText: "Open the 42 faucet",
+    faucetTitle: "Get ZAP from the faucet",
+    faucetIntro: "The site fee is paid in ZAP. If you do not have any ZAP yet, the 42 faucet sends a little to your wallet for free — 1 ZAP at a time (once a week per wallet, once a day per connection).",
+    faucetPoolLabel: "ZAP in the faucet",
+    faucetPoolLine: "{bal} ZAP — about {n} more claim(s) left",
+    faucetPoolUnknown: "The faucet's balance could not be loaded. Tap Refresh to try again.",
+    faucetNotReady: "The faucet is not giving out ZAP right now. Please try again later.",
+    faucetGetBtn: "Get {amount} ZAP",
+    faucetGetBtnPlain: "Get ZAP",
+    faucetRefreshBtn: "Refresh",
+    faucetClaiming: "Asking the faucet to send your ZAP…",
+    faucetDone: "The faucet sent {amount} ZAP to your wallet.",
+    faucetNeedWallet: "Connect your wallet first — the ZAP is sent to your wallet's address.",
+    faucetNowCovers: "You received {amount} ZAP — that is enough for the fee now. You can pay it below.",
+    faucetStillShort: "You received {amount} ZAP, but the fee still needs about {short} ZAP more. ZAP can also be bought on the exchange (DEX) on 42 Chain.",
+    faucetInDays: "in about {n} days",
+    faucetInHours: "in about {n} hours",
+    faucetInMinutes: "in about {n} minutes",
+    faucetErr_address_cooldown: "This address claimed from the faucet recently. You can claim again {t}.",
+    faucetErr_ip_cooldown: "This connection claimed from the faucet recently. You can claim again {t}.",
+    faucetErr_daily_limit: "Today's share of ZAP from the faucet is finished. Please come back tomorrow.",
+    faucetErr_balance_too_high: "Your wallet already has enough ZAP, so the faucet cannot send more.",
+    faucetErr_faucet_low: "The faucet is running low on ZAP. Please try again later.",
+    faucetErr_not_ready: "The faucet is not ready yet. Please try again later.",
+    faucetErr_rpc_error: "The network did not answer. Please try again in a little while.",
+    faucetErr_send_failed: "The faucet could not send this time. Please try again later.",
+    faucetErr_invalid_address: "That address does not look right, so nothing was sent.",
+    faucetErr_turnstile_failed: "The human check did not pass, so nothing was sent. Please try again.",
+    faucetErr_failed: "The claim did not go through this time. Please try again later.",
+    faucetErrNetwork: "Could not reach the faucet. Please check your connection and try again."
   },
   ja: {
     pageTitle: "CAT42 請求 🐱",
@@ -211,7 +245,36 @@ var I18N = {
     feeBurnRejected: "ウォレットでキャンセルされました。何もバーンされていません — 準備ができたらボタンを押して手数料を払ってください。",
     feeBurnFailed: "バーンが通りませんでした。何も引かれていません。もう一度お試しできます。",
     feeUnconfirmed: "バーンは送信しましたが、まだ確認できていません。下のボタンで再確認してください — 手数料が二重にかかることはありません。",
-    faucetLinkText: "42 ファウセットを開く"
+    faucetLinkText: "42 ファウセットを開く",
+    faucetTitle: "フォーセットで ZAP をもらう",
+    faucetIntro: "サイト手数料は ZAP で払います。ZAP を持っていない場合は、42 フォーセットからあなたの財布に無料で送ってもらえます — 1 回に 1 ZAP です（同じウォレットは週に1回まで、同じ接続は1日1回まで）。",
+    faucetPoolLabel: "フォーセットの ZAP 残高",
+    faucetPoolLine: "{bal} ZAP — あと約 {n} 回分あります",
+    faucetPoolUnknown: "フォーセットの残高を読み込めませんでした。「更新する」を押してもう一度お試しください。",
+    faucetNotReady: "いまフォーセットは ZAP を配っていません。あとでもう一度お試しください。",
+    faucetGetBtn: "{amount} ZAP をもらう",
+    faucetGetBtnPlain: "ZAP をもらう",
+    faucetRefreshBtn: "更新する",
+    faucetClaiming: "フォーセットに ZAP の送信を頼んでいます…",
+    faucetDone: "フォーセットからあなたの財布に {amount} ZAP が送られました。",
+    faucetNeedWallet: "先にウォレットをつないでください — ZAP はあなたのウォレットのアドレスに送られます。",
+    faucetNowCovers: "{amount} ZAP を受け取りました — 手数料に足りるようになりました。下から手数料を払えます。",
+    faucetStillShort: "{amount} ZAP を受け取りましたが、手数料にはまだ約 {short} ZAP 足りません。ZAP は 42 Chain の取引所（DEX）で買うこともできます。",
+    faucetInDays: "約{n}日後",
+    faucetInHours: "約{n}時間後",
+    faucetInMinutes: "約{n}分後",
+    faucetErr_address_cooldown: "このアドレスは最近フォーセットから受け取りました。次は{t}に受け取れます。",
+    faucetErr_ip_cooldown: "この接続からは最近フォーセットから受け取りがありました。次は{t}に受け取れます。",
+    faucetErr_daily_limit: "フォーセットの今日の ZAP 分は終わりました。明日また来てください。",
+    faucetErr_balance_too_high: "このコインは財布に十分あるので、フォーセットからは送れません。",
+    faucetErr_faucet_low: "フォーセットの ZAP が少なくなっています。あとでもう一度お試しください。",
+    faucetErr_not_ready: "フォーセットの準備がまだできていません。あとでもう一度お試しください。",
+    faucetErr_rpc_error: "ネットワークが応答しませんでした。少し待ってもう一度お試しください。",
+    faucetErr_send_failed: "今回は送れませんでした。あとでもう一度お試しください。",
+    faucetErr_invalid_address: "アドレスの形が正しくないので、送りませんでした。",
+    faucetErr_turnstile_failed: "本人確認チェックを通らなかったので、送りませんでした。もう一度お試しください。",
+    faucetErr_failed: "今回は受け取れませんでした。あとでもう一度お試しください。",
+    faucetErrNetwork: "フォーセットにつながりませんでした。接続を確認してもう一度お試しください。"
   }
 };
 
@@ -256,6 +319,13 @@ function formatCAT(wei) {
   return neg ? "-" + s : s;
 }
 function formatInt(n) { return commas(String(n)); }
+/* ZAP display: same 2-decimal style as CAT42, trailing zeros trimmed
+   (so a 1 ZAP claim reads "1", not "1.00"). */
+function formatZap(wei) {
+  var s = formatCAT(wei);
+  if (s.indexOf(".") >= 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
+  return s;
+}
 function template(str, vars) {
   return str.replace(/\{(\w+)\}/g, function (_, k) { return vars && vars[k] !== undefined ? String(vars[k]) : "{" + k + "}"; });
 }
@@ -359,6 +429,120 @@ function receiptBurnVerified(receipt, userAddress, amountWei) {
     try { if (BigInt(log.data) === amt) return true; } catch (e) { /* keep checking */ }
   }
   return false;
+}
+
+/* ---------- ZAP faucet client (pure parsing + thin fetch) ---------- */
+/* The Worker formats amounts as plain decimal strings in token units
+   ("1", "0.5", "12.34"); parse them back to wei exactly. */
+function parseDecimalToWei(s) {
+  if (typeof s !== "string") return null;
+  var m = /^(\d+)(?:\.(\d+))?$/.exec(s.trim());
+  if (!m) return null;
+  var frac = m[2] || "";
+  if (frac.length > 18) return null;
+  frac = (frac + "000000000000000000").slice(0, 18);
+  try { return BigInt(m[1]) * (10n ** 18n) + BigInt(frac); } catch (e) { return null; }
+}
+/* GET /status?chain=42&token=zap response -> pool state, or null when the
+   shape is not trustworthy (callers then show "could not load", never a
+   made-up number). */
+function parseZapFaucetStatus(j) {
+  if (!j || typeof j !== "object") return null;
+  if (typeof j.claimAmount !== "string") return null;
+  var claimAmountWei = parseDecimalToWei(j.claimAmount);
+  if (claimAmountWei === null || claimAmountWei <= 0n) return null;
+  var balanceWei = typeof j.balance === "string" ? parseDecimalToWei(j.balance) : null;
+  var claimsLeft = (typeof j.claimsLeft === "number" && isFinite(j.claimsLeft))
+    ? Math.max(0, Math.floor(j.claimsLeft)) : null;
+  return {
+    ready: j.ready === true,
+    reason: typeof j.reason === "string" ? j.reason : null,
+    faucetAddress: typeof j.faucetAddress === "string" ? j.faucetAddress : null,
+    balanceWei: balanceWei === null ? null : balanceWei.toString(),
+    claimsLeft: claimsLeft,
+    claimAmountWei: claimAmountWei.toString(),
+    symbol: typeof j.symbol === "string" ? j.symbol : "ZAP"
+  };
+}
+function buildZapClaimBody(address) {
+  return { chain: "42", token: "zap", address: address };
+}
+function parseZapClaimResponse(j) {
+  if (j && j.ok === true) {
+    return {
+      ok: true,
+      txHash: typeof j.txHash === "string" ? j.txHash : "",
+      amount: typeof j.amount === "string" ? j.amount : "",
+      explorerUrl: typeof j.explorerUrl === "string" ? j.explorerUrl : null
+    };
+  }
+  return {
+    ok: false,
+    code: (j && typeof j.code === "string") ? j.code : "failed",
+    retryAfterSec: (j && typeof j.retryAfterSec === "number") ? j.retryAfterSec : null
+  };
+}
+/* Every Worker rejection code gets its own plain-language message (the
+   same taxonomy as the CAW app's faucet screen). Unlisted codes fall back
+   to the claim-specific "failed" text; a request that never reached the
+   Worker is "network", distinct from every Worker code. */
+var FAUCET_ERR_CODES = [
+  "address_cooldown", "ip_cooldown", "daily_limit", "balance_too_high",
+  "faucet_low", "not_ready", "rpc_error", "send_failed",
+  "invalid_address", "turnstile_failed"
+];
+function faucetErrorKey(code) {
+  if (FAUCET_ERR_CODES.indexOf(code) >= 0) return "faucetErr_" + code;
+  if (code === "network") return "faucetErrNetwork";
+  return "faucetErr_failed";
+}
+function isCooldownCode(code) {
+  return code === "address_cooldown" || code === "ip_cooldown";
+}
+/* Bucket a retry-after duration for the plain-language suffix: the
+   address cooldown runs up to 7 days, the IP one 24h. */
+function retryParts(sec) {
+  var s = Math.max(0, Math.floor(Number(sec) || 0));
+  if (s >= 36 * 3600) return { unit: "days", n: Math.ceil(s / 86400) };
+  if (s >= 90 * 60) return { unit: "hours", n: Math.ceil(s / 3600) };
+  return { unit: "minutes", n: Math.max(1, Math.ceil(s / 60)) };
+}
+/* Model of the fee gate right after a faucet claim lands: the ZAP
+   balance goes up by what was claimed, and the gate is recomputed.
+   The page uses this to predict whether waiting for the chain balance
+   is worthwhile; the authoritative gate is always re-read afterwards. */
+function gateAfterFaucetClaim(args) {
+  var bal = (args.zapBalanceWei === null || args.zapBalanceWei === undefined)
+    ? null
+    : (BigInt(args.zapBalanceWei) + BigInt(args.claimedWei || 0)).toString();
+  return computeClaimAccess({
+    unclaimedIds: args.unclaimedIds, feeCatWei: args.feeCatWei,
+    feeZapWei: args.feeZapWei, zapBalanceWei: bal,
+    paidIds: args.paidIds || null
+  });
+}
+async function fetchZapFaucetStatus(fetchImpl) {
+  var f = fetchImpl || fetchFn();
+  try {
+    var r = await f(FAUCET_BASE + "/status?chain=42&token=zap");
+    if (!r.ok) return null;
+    return parseZapFaucetStatus(await r.json());
+  } catch (e) { return null; }
+}
+async function claimZapFaucet(address, fetchImpl) {
+  var f = fetchImpl || fetchFn();
+  var j = null;
+  try {
+    var r = await f(FAUCET_BASE + "/claim", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(buildZapClaimBody(address))
+    });
+    j = await r.json().catch(function () { return null; });
+  } catch (e) {
+    return { ok: false, code: "network", retryAfterSec: null };
+  }
+  return parseZapClaimResponse(j);
 }
 
 /* ---------- RPC (batch eth_call, with fallback) ---------- */
@@ -544,7 +728,14 @@ if (typeof module !== "undefined" && module.exports) {
     idsFingerprint: idsFingerprint, honoredClaimIds: honoredClaimIds,
     computeClaimAccess: computeClaimAccess, receiptBurnVerified: receiptBurnVerified,
     getErc20Balance: getErc20Balance, getZapBalance: getZapBalance,
-    quoteZapOut: quoteZapOut
+    quoteZapOut: quoteZapOut,
+    FAUCET_BASE: FAUCET_BASE, parseDecimalToWei: parseDecimalToWei,
+    parseZapFaucetStatus: parseZapFaucetStatus, buildZapClaimBody: buildZapClaimBody,
+    parseZapClaimResponse: parseZapClaimResponse, FAUCET_ERR_CODES: FAUCET_ERR_CODES,
+    faucetErrorKey: faucetErrorKey, isCooldownCode: isCooldownCode,
+    retryParts: retryParts, gateAfterFaucetClaim: gateAfterFaucetClaim,
+    fetchZapFaucetStatus: fetchZapFaucetStatus, claimZapFaucet: claimZapFaucet,
+    formatZap: formatZap
   };
 }
 
@@ -559,7 +750,8 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     var state = {
       address: null, scan: null, claiming: false, feeRunning: false,
       access: null, feeCatWei: 0n, feeZapWei: null, zapBalance: null,
-      feeAction: null, feeFlash: null, lastFee: null
+      feeAction: null, feeFlash: null, lastFee: null,
+      faucetStatus: null, faucetRunning: false
     };
 
     function applyI18n() {
@@ -570,6 +762,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
         statsTitle: "statsTitle", statClaimsLabel: "statClaimsLabel",
         statVaultLabel: "statVaultLabel", statGuidesLabel: "statGuidesLabel",
         statsNote: "statsNote", noWalletTitle: "noWalletTitle", noWalletText: "noWalletText",
+        faucetTitle: "faucetTitle", faucetIntro: "faucetIntro", faucetPoolLabel: "faucetPoolLabel",
         connectBtn: "connectBtn", connectNote: "connectNote", yourWalletLabel: "yourWalletLabel",
         rescanBtn: "rescanBtn", switchChainBtn: "switchChainBtn",
         totalLabel: "totalLabel", totalNote: "totalNote",
@@ -582,6 +775,8 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
       };
       Object.keys(map).forEach(function (id) { var el = $(id); if (el) el.textContent = S[map[id]]; });
       var cb = $("claimBtn"); if (cb) cb.textContent = S.claimBtn;
+      var frb = $("faucetRefreshBtn"); if (frb) frb.textContent = S.faucetRefreshBtn;
+      var fcb = $("faucetClaimBtn"); if (fcb) fcb.textContent = S.faucetGetBtnPlain;
     }
 
     /* language selector */
@@ -936,6 +1131,8 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
       var title = $("feePendingTitle");
       var text = $("feePendingText");
       var btn = $("feeResumeBtn");
+      var faucetBtn = $("feeFaucetBtn");
+      if (faucetBtn) faucetBtn.hidden = true; /* shown only in the shortfall state */
       var claimBtn = $("claimBtn");
       var feeCatWei = state.feeCatWei || 0n;
       var feeZapWei = state.feeZapWei;
@@ -996,13 +1193,16 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
             bal: formatCAT(state.zapBalance || 0n),
             short: formatCAT(BigInt(access.shortfallWei))
           });
-          var fl = document.createElement("div");
-          var fa = document.createElement("a");
-          fa.href = "https://ql1-infinite42-guppy-histoire.github.io/42-faucet/";
-          fa.target = "_blank"; fa.rel = "noreferrer";
-          fa.textContent = S.faucetLinkText;
-          fl.appendChild(fa);
-          box.appendChild(fl);
+          /* The faucet claim now happens right here on the page (the
+             standalone faucet card below has the same button); the fee
+             gate re-evaluates by itself once the ZAP arrives. */
+          if (faucetBtn) {
+            faucetBtn.hidden = false;
+            faucetBtn.disabled = !!state.faucetRunning;
+            faucetBtn.textContent = state.faucetStatus
+              ? t("faucetGetBtn", { amount: formatZap(BigInt(state.faucetStatus.claimAmountWei)) })
+              : S.faucetGetBtnPlain;
+          }
         }
       } else if (access.status === "needquote") {
         panel.hidden = false;
@@ -1160,6 +1360,139 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
       }
     }
 
+    /* ---------- ZAP faucet card + in-page claim ----------
+       The faucet Worker's own wallet sends the ZAP; this page only asks
+       for the connected address (no signature, nothing to sign). The
+       pool numbers come from the Worker live — a failed read shows an
+       honest "could not load", never a stale or made-up number. */
+    function faucetCardMessage(kind, msg, hash) {
+      var box = $("faucetResult");
+      if (!box) return;
+      box.innerHTML = "";
+      box.className = "result" + (kind ? " " + kind : "");
+      var d = document.createElement("div");
+      d.textContent = msg;
+      box.appendChild(d);
+      if (hash) box.appendChild(txLinkDiv(hash));
+    }
+    function renderFaucetCard() {
+      var st = state.faucetStatus;
+      var line = $("faucetPoolLine");
+      var btn = $("faucetClaimBtn");
+      if (!line || !btn) return;
+      if (!st) {
+        line.textContent = S.faucetPoolUnknown;
+        btn.textContent = S.faucetGetBtnPlain;
+        btn.disabled = !!state.faucetRunning;
+        return;
+      }
+      if (st.balanceWei !== null && st.claimsLeft !== null) {
+        line.textContent = t("faucetPoolLine", { bal: formatZap(BigInt(st.balanceWei)), n: formatInt(st.claimsLeft) });
+      } else if (st.balanceWei !== null) {
+        line.textContent = formatZap(BigInt(st.balanceWei)) + " ZAP";
+      } else {
+        line.textContent = S.faucetPoolUnknown;
+      }
+      btn.textContent = t("faucetGetBtn", { amount: formatZap(BigInt(st.claimAmountWei)) });
+      btn.disabled = !st.ready || !!state.faucetRunning;
+      if (!st.ready) setResult($("faucetResult"), S.faucetNotReady, "error");
+    }
+    async function loadFaucetCard() {
+      state.faucetStatus = await fetchZapFaucetStatus();
+      renderFaucetCard();
+    }
+    function faucetErrorText(res) {
+      var msg = S[faucetErrorKey(res.code)] || S.faucetErr_failed;
+      if (isCooldownCode(res.code) && res.retryAfterSec) {
+        var p = retryParts(res.retryAfterSec);
+        var tw = p.unit === "days" ? t("faucetInDays", { n: p.n })
+          : (p.unit === "hours" ? t("faucetInHours", { n: p.n }) : t("faucetInMinutes", { n: p.n }));
+        return template(msg, { t: tw });
+      }
+      return template(msg, { t: "" });
+    }
+    /* The faucet transfer may take a few seconds to show in the wallet's
+       on-chain balance; poll briefly so the gate re-evaluation below
+       reads the balance that actually includes the new ZAP. */
+    async function waitForZapBalanceAbove(prevWei) {
+      for (var i = 0; i < 10; i++) {
+        var bal = await getZapBalance(state.address).catch(function () { return null; });
+        if (bal !== null && (prevWei === null || prevWei === undefined || bal > BigInt(prevWei))) return bal;
+        await new Promise(function (res) { setTimeout(res, 3000); });
+      }
+      return null;
+    }
+    async function runFaucetClaim(source) {
+      if (state.faucetRunning) return;
+      var fromFee = source === "fee";
+      if (!state.address) {
+        if (!hasWallet()) { $("noWalletPanel").hidden = false; }
+        if (fromFee) feePanelMessage("error", S.faucetNeedWallet);
+        else {
+          faucetCardMessage("error", S.faucetNeedWallet);
+          var cp = $("connectPanel");
+          if (cp && cp.scrollIntoView) cp.scrollIntoView({ block: "center" });
+        }
+        return;
+      }
+      state.faucetRunning = true;
+      var cardBtn = $("faucetClaimBtn"); if (cardBtn) cardBtn.disabled = true;
+      var feeBtn0 = $("feeFaucetBtn"); if (feeBtn0) feeBtn0.disabled = true;
+      if (fromFee) setFeeProgress(S.faucetClaiming);
+      else { var fp = $("faucetProgress"); if (fp) fp.textContent = S.faucetClaiming; }
+      try {
+        var prevBal = state.zapBalance;
+        var res = await claimZapFaucet(state.address);
+        if (fromFee) setFeeProgress("");
+        else { var fp2 = $("faucetProgress"); if (fp2) fp2.textContent = ""; }
+        if (!res.ok) {
+          var emsg = faucetErrorText(res);
+          if (fromFee) feePanelMessage("error", emsg);
+          else faucetCardMessage("error", emsg);
+          return;
+        }
+        var amtWei = parseDecimalToWei(res.amount);
+        var doneMsg = t("faucetDone", { amount: res.amount || "1" });
+        if (fromFee) feePanelMessage("ok", doneMsg, res.txHash || null);
+        else faucetCardMessage("ok", doneMsg, res.txHash || null);
+        await loadFaucetCard();
+        await refreshCatBalance();
+        if (state.scan && state.access && state.access.status === "insufficient") {
+          /* Predict from the tracked balance + what just arrived: wait
+             for the chain to show the new balance only when the fee may
+             now be covered, then re-evaluate the gate from fresh reads
+             (quote + balance), exactly like the "Check again" path. */
+          var predicted = null;
+          if (state.feeZapWei !== null && state.feeZapWei !== undefined && amtWei !== null) {
+            predicted = gateAfterFaucetClaim({
+              unclaimedIds: state.scan.unclaimed.map(function (u) { return u.id; }),
+              feeCatWei: state.feeCatWei, feeZapWei: state.feeZapWei,
+              zapBalanceWei: prevBal, claimedWei: amtWei, paidIds: null
+            });
+          }
+          if (!predicted || predicted.status === "ready") {
+            await waitForZapBalanceAbove(prevBal);
+          }
+          await evaluateFee(state.scan);
+          if (state.access && state.access.status === "ready") {
+            feePanelMessage("ok", t("faucetNowCovers", { amount: res.amount || "1" }), res.txHash || null);
+          } else if (state.access && state.access.status === "insufficient"
+            && state.access.shortfallWei !== null && state.access.shortfallWei !== undefined) {
+            feePanelMessage("error", t("faucetStillShort", {
+              amount: res.amount || "1",
+              short: formatZap(BigInt(state.access.shortfallWei))
+            }), res.txHash || null);
+          } else if (fromFee) {
+            feePanelMessage("ok", doneMsg, res.txHash || null);
+          }
+        }
+      } finally {
+        state.faucetRunning = false;
+        renderFaucetCard();
+        var feeBtn1 = $("feeFaucetBtn"); if (feeBtn1) feeBtn1.disabled = false;
+      }
+    }
+
     function onFeeAction() {
       if (state.feeAction === "burn") payFee();
       else if (state.feeAction === "verify") verifyPendingBurn();
@@ -1266,6 +1599,9 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     $("rescanBtn").addEventListener("click", scanAndRender);
     $("claimBtn").addEventListener("click", claimAll);
     $("feeResumeBtn").addEventListener("click", function () { onFeeAction(); });
+    $("faucetClaimBtn").addEventListener("click", function () { runFaucetClaim("card"); });
+    $("faucetRefreshBtn").addEventListener("click", function () { loadFaucetCard(); });
+    $("feeFaucetBtn").addEventListener("click", function () { runFaucetClaim("fee"); });
     $("switchChainBtn").addEventListener("click", async function () {
       try {
         await ensureChain();
@@ -1294,5 +1630,6 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
       });
     }
     loadStats();
+    loadFaucetCard();
   })();
 }

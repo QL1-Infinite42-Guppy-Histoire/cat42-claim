@@ -54,6 +54,16 @@
 - **ZAP が足りない場合**: サイトからは先へ進めません。不足量を表示し、入手方法を
   案内します（42 ファウセットで 1 ZAP ずつもらえる／DEX で買える）。他の方法への
   黙ったフォールバックはしません。
+- **ZAP フォーセットカード（ページ内蔵）**: ページに常設のカードと、手数料不足の
+  パネルの両方に「ZAP をもらう」ボタンを置き、42 フォーセットの Worker
+  （`42-faucet.nepicobsv.workers.dev`）から **その場で** 1 ZAP を請求できます
+  （外部サイトへ飛ばしません）。カードにはプールの ZAP 残高と残り回数をライブ表示し、
+  読み込みに失敗したら「読み込めませんでした」と正直に出します（古い数字は出しません）。
+  請求が成功すると、プール表示・財布の残高・手数料ゲート（残高を読み直して再判定）が
+  自動で更新され、足りるようになればそのままバーンに進めます。1 回のフォーセットでは
+  足りない場合は、新しい不足分を正直に表示します。Worker の却下コード
+  （アドレス／IP のクールダウン、1日の上限、残高不足、未準備、送信失敗など）は
+  すべて個別の平易な文面に対応付けています（CAW アプリのフォーセット画面と同じ分類）。
 - **開示（バーンの前に、細字ではなく大きく）**:
   (1) 手数料は **見込み額** から計算します。実際の受取額は、請求の中で Guide ごとに
   少しずつ減るため、表示と少し違うことがあります。
@@ -129,7 +139,7 @@ CAT42/ZAP ペア `0xc6386fcca45591e604edc3f512465d0ebad79944`
 ### 検証（2026-11-09 追加、前払い ZAP 手数料）
 
 当初案（請求後に CAT42 をスワップしてバーン）は同日に前払い方式へ設計変更。
-`tools/verify.js` の手数料まわりの確認を新しい設計に合わせて全て合格（全 86 項目）:
+`tools/verify.js` の手数料まわりの確認を新しい設計に合わせて全て合格（全 176 項目。ZAP フォーセットの /status 解析・請求リクエスト形式・却下コード全種の文面対応・請求後のゲート再判定を含む）:
 
 - 手数料計算: preview 合計からの 5%・切り捨て・0 のケース（19 wei → 0）・文字列 wei の
   受け付け・複数 Guide の preview 合計からの計算
@@ -190,7 +200,16 @@ Disclosed up front, in plain words (EN/JA): the fee is computed from estimates
 refunded even if the claim is then cancelled or fails — the claim therefore
 auto-starts the moment the burn confirms. If the user's ZAP balance is short,
 the site stops there with the shortfall and honest guidance (42 faucet: 1 ZAP
-per claim; or buy ZAP on the DEX) — there is no silent fallback route. A
+per claim; or buy ZAP on the DEX) — there is no silent fallback route. The
+faucet is also built into the page: a standalone card (and a button inside
+the fee-shortfall panel) shows the ZAP pool's live balance and claims left
+from the faucet Worker and claims 1 ZAP in-page for the connected wallet —
+a failed status read says so honestly instead of showing a stale number.
+After a successful faucet claim the pool display, the wallet balances and
+the fee gate (re-read from the chain) all refresh, and any remaining
+shortfall is shown as the new honest figure. Every Worker rejection code
+maps to its own plain message (the same taxonomy as the CAW app's faucet
+screen). A
 minimal localStorage record (address, id set + fingerprint, feeZAP, burn tx,
 stage) makes a sent burn binding on return: it is verified from the receipt,
 never re-sent, and if some of its Guides were claimed elsewhere meanwhile the
@@ -198,5 +217,11 @@ record is honored for the remaining ids — the same ids are never charged
 twice. It remains a site-usage fee: `claimMany` is permissionless, so claiming
 directly against the contract does not pass through this site and carries no
 fee, and users without ZAP must obtain some first. Fee checks in
-`tools/verify.js` were rewritten for this design and pass (86 checks); no real
-claim+fee run has been sent yet — the first user run is the end-to-end check.
+`tools/verify.js` were rewritten for this design and pass (176 checks,
+including the ZAP faucet's /status parsing, claim request shape, every
+rejection code's message mapping, and the post-claim gate re-evaluation);
+no real claim+fee run has been sent yet — the first user run is the
+end-to-end check. The faucet integration is likewise verified read-only
+(live /status only — no real claim was POSTed from the build environment,
+since that would consume a pool slot and the sandbox IP's quota); the
+first in-page faucet claim by a user is its end-to-end check.
