@@ -63,38 +63,26 @@ const wordUint = (w) => BigInt("0x" + w);
     check(`A2 guide #${want} owned+unclaimed preview>0`, !!u && BigInt(u.previewWei) > 0n, u ? `tier=${u.tier} preview=${app.formatCAT(BigInt(u.previewWei))}` : "not in unclaimed list");
   }
 
-  // 5) site fee math: 5% of received, rounded down, zero case skips the phase
+  // 5) prepaid fee math: 5% of the preview total (the estimate), floor, zero case
   const E18 = 10n ** 18n;
-  check("fee 5% of 374 CAT42", app.computeFeeWei(374n * E18) === 187n * E18 / 10n, app.formatCAT(app.computeFeeWei(374n * E18)));
+  check("fee 5% of 374 CAT42 estimate", app.computeFeeWei(374n * E18) === 187n * E18 / 10n, app.formatCAT(app.computeFeeWei(374n * E18)));
   check("fee floor (101 wei -> 5)", app.computeFeeWei(101n) === 5n, String(app.computeFeeWei(101n)));
   check("fee zero case (19 wei -> 0)", app.computeFeeWei(19n) === 0n);
   check("fee zero case (0 -> 0)", app.computeFeeWei(0n) === 0n);
   check("fee accepts string wei", app.computeFeeWei("1000") === 50n);
+  const previewSum = [374n * E18, 748n * E18].reduce((a, b) => a + b, 0n);
+  check("fee from summed previews (374+748 -> 56.1)", app.computeFeeWei(previewSum) === 561n * E18 / 10n,
+    app.formatCAT(app.computeFeeWei(previewSum)));
 
-  // 6) fee calldata round-trips
-  const ap = app.encodeApprove(app.ROUTER, 12345n);
-  const apw = wordsOf(ap);
-  check("approve selector", ap.slice(0, 10) === "0x095ea7b3", ap.slice(0, 10));
-  check("approve spender", wordAddr(apw[0]) === app.ROUTER.toLowerCase(), wordAddr(apw[0]));
-  check("approve amount", wordUint(apw[1]) === 12345n);
-
+  // 6) ZAP burn transfer calldata round-trip (the only fee transaction)
   const tr = app.encodeTransfer(app.BURN_ADDRESS, 6789n);
   const trw = wordsOf(tr);
   check("transfer selector", tr.slice(0, 10) === "0xa9059cbb", tr.slice(0, 10));
   check("transfer goes to burn address", wordAddr(trw[0]) === app.BURN_ADDRESS.toLowerCase(), wordAddr(trw[0]));
   check("transfer amount", wordUint(trw[1]) === 6789n);
-
-  const sw = app.encodeSwapExactTokensForTokens(1000n, 900n, [app.CAT42, app.ZAP], "0x1111111111111111111111111111111111111111", 1700000600n);
-  const sww = wordsOf(sw);
-  check("swap selector", sw.slice(0, 10) === "0x38ed1739", sw.slice(0, 10));
-  check("swap amountIn", wordUint(sww[0]) === 1000n);
-  check("swap amountOutMin", wordUint(sww[1]) === 900n);
-  check("swap path offset", wordUint(sww[2]) === 160n, String(wordUint(sww[2])));
-  check("swap to", wordAddr(sww[3]) === "0x1111111111111111111111111111111111111111");
-  check("swap deadline", wordUint(sww[4]) === 1700000600n);
-  check("swap path length", wordUint(sww[5]) === 2n);
-  check("swap path[0] = CAT42", wordAddr(sww[6]) === app.CAT42.toLowerCase());
-  check("swap path[1] = ZAP", wordAddr(sww[7]) === app.ZAP.toLowerCase());
+  const feeTr = app.encodeTransfer(app.BURN_ADDRESS, 48300000000000000n); // ≈0.0483 ZAP
+  const ftw = wordsOf(feeTr);
+  check("fee-sized transfer amount round-trips", wordUint(ftw[1]) === 48300000000000000n && wordAddr(ftw[0]) === app.BURN_ADDRESS.toLowerCase());
 
   const gq = app.encodeGetAmountsOut(1000n, [app.CAT42, app.ZAP]);
   const gqw = wordsOf(gq);
@@ -103,40 +91,77 @@ const wordUint = (w) => BigInt("0x" + w);
   check("getAmountsOut path offset", wordUint(gqw[1]) === 64n);
   check("getAmountsOut path", wordUint(gqw[2]) === 2n && wordAddr(gqw[3]) === app.CAT42.toLowerCase() && wordAddr(gqw[4]) === app.ZAP.toLowerCase());
 
-  // 7) live router quote: 400 CAT42 should buy a sane amount of ZAP
-  //    (reference rate ≈ 0.00241 ZAP/CAT42 → ≈0.96 ZAP; accept 0.1..5 for drift)
+  // 7) live router quote + fee sizing: a 400 CAT42 estimate -> fee 20 CAT42 -> ~0.0483 ZAP
   const quote = await app.quoteZapOut(400n * E18);
   console.log("live quote 400 CAT42 -> ZAP:", quote === null ? "null" : `${Number(quote) / 1e18} ZAP`);
   check("live quote readable", quote !== null && quote > 0n);
   check("live quote sane range", quote !== null && quote > E18 / 10n && quote < 5n * E18, quote === null ? "null" : String(Number(quote) / 1e18));
+  const feeQuote = await app.quoteZapOut(app.computeFeeWei(400n * E18));
+  console.log("live fee quote 20 CAT42 -> ZAP:", feeQuote === null ? "null" : `${Number(feeQuote) / 1e18} ZAP`);
+  check("fee quote readable", feeQuote !== null && feeQuote > 0n);
+  check("fee quote sane range (~0.0483)", feeQuote !== null && feeQuote > E18 / 200n && feeQuote < E18 / 4n,
+    feeQuote === null ? "null" : String(Number(feeQuote) / 1e18));
 
-  // receipt-log fallback parser: sum ZAP transfers to the user
-  const fakeReceipt = { logs: [
-    { address: app.ZAP, topics: ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
-      "0x" + "0".repeat(24) + app.ROUTER.slice(2).toLowerCase(),
-      "0x" + "0".repeat(24) + "2222222222222222222222222222222222222222"], data: "0x" + (500n).toString(16).padStart(64, "0") },
-    { address: app.CAT42, topics: ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
-      "0x" + "0".repeat(24) + app.ROUTER.slice(2).toLowerCase(),
-      "0x" + "0".repeat(24) + "2222222222222222222222222222222222222222"], data: "0x" + (999n).toString(16).padStart(64, "0") }
-  ] };
-  check("zapReceivedFromLogs sums only ZAP to user",
-    app.zapReceivedFromLogs(fakeReceipt, "0x2222222222222222222222222222222222222222") === 500n);
-  check("zapReceivedFromLogs null when no match",
-    app.zapReceivedFromLogs(fakeReceipt, "0x3333333333333333333333333333333333333333") === null);
+  // 8) id-set fingerprint + honored intersection (resume, never double-charge)
+  check("fingerprint order-insensitive", app.idsFingerprint([3, 1, 2]) === app.idsFingerprint([2, 3, 1]));
+  check("fingerprint differs by set", app.idsFingerprint([1, 2]) !== app.idsFingerprint([1, 3]));
+  check("fingerprint of empty set stable", app.idsFingerprint([]) === app.idsFingerprint([]));
+  check("honored = intersection", JSON.stringify(app.honoredClaimIds([1, 2, 3], [2, 3, 4])) === JSON.stringify([2, 3]));
+  check("honored empty when disjoint", app.honoredClaimIds([1, 2], [3, 4]).length === 0);
+  check("honored keeps unclaimed order", JSON.stringify(app.honoredClaimIds([9, 5], [5, 7, 9])) === JSON.stringify([5, 9]));
 
-  // 8) both HTML shells carry the fee UI + strings, and app.js?v=2 is used
+  // 9) claim-gate state logic: no claim path without a verified burn (or a zero fee)
+  const gate = (o) => app.computeClaimAccess(o);
+  let g = gate({ unclaimedIds: [], feeCatWei: 10n, feeZapWei: 5n, zapBalanceWei: 5n, paidIds: null });
+  check("gate: nothing to claim", g.status === "nothing" && g.claimIds.length === 0);
+  g = gate({ unclaimedIds: [1, 2], feeCatWei: 0n, feeZapWei: null, zapBalanceWei: null, paidIds: null });
+  check("gate: zero fee unlocks all", g.status === "unlocked" && g.claimIds.length === 2);
+  g = gate({ unclaimedIds: [1, 2], feeCatWei: 10n, feeZapWei: 5n, zapBalanceWei: 100n, paidIds: null });
+  check("gate: payable but NOT unlocked (locked until burn)", g.status === "ready" && g.claimIds.length === 0);
+  g = gate({ unclaimedIds: [1, 2], feeCatWei: 10n, feeZapWei: null, zapBalanceWei: 100n, paidIds: null });
+  check("gate: no quote -> needquote, locked", g.status === "needquote" && g.claimIds.length === 0);
+  g = gate({ unclaimedIds: [1, 2], feeCatWei: 10n, feeZapWei: 50n, zapBalanceWei: 30n, paidIds: null });
+  check("gate: short balance -> insufficient", g.status === "insufficient" && g.claimIds.length === 0);
+  check("gate: shortfall is exact", g.shortfallWei === "20");
+  g = gate({ unclaimedIds: [1, 2], feeCatWei: 10n, feeZapWei: 50n, zapBalanceWei: null, paidIds: null });
+  check("gate: unreadable balance -> insufficient, shortfall unknown", g.status === "insufficient" && g.shortfallWei === null);
+  g = gate({ unclaimedIds: [1, 2], feeCatWei: 10n, feeZapWei: null, zapBalanceWei: null, paidIds: [1, 2] });
+  check("gate: paid record unlocks without quote/balance (no double charge)", g.status === "unlocked" && g.claimIds.length === 2 && g.honored === true);
+  g = gate({ unclaimedIds: [2, 3, 4], feeCatWei: 10n, feeZapWei: null, zapBalanceWei: null, paidIds: [1, 2, 3] });
+  check("gate: paid record honored for remaining ids only", g.status === "unlocked" && JSON.stringify(g.claimIds) === JSON.stringify([2, 3]) && g.extra === 1);
+  g = gate({ unclaimedIds: [7, 8], feeCatWei: 10n, feeZapWei: 50n, zapBalanceWei: 60n, paidIds: [1, 2] });
+  check("gate: disjoint paid record does not unlock a new set", g.status === "ready" && g.claimIds.length === 0);
+
+  // 10) burn verification from a receipt: exact ZAP user -> burn-address log only
+  const USER = "0x2222222222222222222222222222222222222222";
+  const topic = (a) => "0x" + "0".repeat(24) + a.slice(2).toLowerCase();
+  const burnLog = (amt) => ({ address: app.ZAP, topics: ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", topic(USER), topic(app.BURN_ADDRESS)], data: "0x" + amt.toString(16).padStart(64, "0") });
+  check("burn verified: exact log", app.receiptBurnVerified({ status: "0x1", logs: [burnLog(500n)] }, USER, 500n) === true);
+  check("burn verified: string amount", app.receiptBurnVerified({ status: "0x1", logs: [burnLog(500n)] }, USER, "500") === true);
+  check("burn not verified: wrong amount", app.receiptBurnVerified({ status: "0x1", logs: [burnLog(499n)] }, USER, 500n) === false);
+  check("burn not verified: failed tx", app.receiptBurnVerified({ status: "0x0", logs: [burnLog(500n)] }, USER, 500n) === false);
+  check("burn not verified: recipient not burn address",
+    app.receiptBurnVerified({ status: "0x1", logs: [{ address: app.ZAP, topics: ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", topic(USER), topic("0x3333333333333333333333333333333333333333")], data: "0x" + (500n).toString(16).padStart(64, "0") }] }, USER, 500n) === false);
+  check("burn not verified: no logs", app.receiptBurnVerified({ status: "0x1", logs: [] }, USER, 500n) === false);
+  check("burn not verified: null receipt", app.receiptBurnVerified(null, USER, 500n) === false);
+
+  // 11) both HTML shells carry the fee UI + strings; the swap route is gone
   const appJs = fs.readFileSync(path.join(__dirname, "..", "docs", "app.js"), "utf8");
   for (const shell of ["en.html", "ja.html"]) {
     const html = fs.readFileSync(path.join(__dirname, "..", "docs", shell), "utf8");
     for (const id of ["feeBox", "feeTitle", "feeNote", "feeEstimate", "feePanel", "feePendingTitle", "feePendingText", "feeResumeBtn", "feeProgress", "feeResult"]) {
       check(`${shell} has #${id}`, html.includes(`id="${id}"`));
     }
-    check(`${shell} loads app.js?v=2`, html.includes("app.js?v=2"));
+    check(`${shell} loads app.js?v=3`, html.includes("app.js?v=3"));
   }
-  check("i18n en feeNote mentions 5% and ZAP", appJs.includes("5% is swapped into a token called ZAP"));
-  check("i18n ja feeNote mentions 5% and ZAP", appJs.includes("5% を ZAP というトークンに交換し"));
-  check("i18n en fee done line present", appJs.includes("was swapped into {zap} ZAP, and all of that ZAP was burned"));
-  check("i18n ja fee done line present", appJs.includes("ZAP をすべてバーンしました"));
+  check("swap route removed from app.js", !appJs.includes("swapExactTokensForTokens") && !appJs.includes("encodeApprove"));
+  check("claim path gated on unlocked access", appJs.includes('state.access.status !== "unlocked"'));
+  check("i18n en feeNote: prepaid wording", appJs.includes("paid before you claim"));
+  check("i18n en feeNote: no-refund disclosure", appJs.includes("cannot be refunded"));
+  check("i18n en feeNote: estimate disclosure", appJs.includes("figured from the estimated amounts"));
+  check("i18n ja feeNote: prepaid wording", appJs.includes("手数料を請求の前にいただいています"));
+  check("i18n ja feeNote: no-refund disclosure", appJs.includes("戻ってきません"));
+  check("i18n ja feeNote: estimate disclosure", appJs.includes("手数料は見込み額から計算します"));
 
   console.log(failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);

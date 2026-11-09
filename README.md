@@ -5,7 +5,8 @@
 
 - ウォレット（MetaMask など）をつなぐ
 - 保有している Guide を自動で探す
-- 「まとめて全部もらう」ボタンを1回押すだけ（CAT42 コントラクトの `claimMany` を使用）
+- サイト手数料（見込み額の 5% 相当の ZAP）をバーンすると、そのまま請求が始まる
+  （CAT42 コントラクトの `claimMany` を使用。手数料の詳細は下記）
 
 専門用語は画面に出さず、日常の言葉だけで案内します。スマホ（Android）での利用を前提に、
 大きなボタンと読みやすいカード型レイアウトにしています。
@@ -30,34 +31,43 @@
 | 2 | Epic | ×4 | 約 1,496 CAT42 |
 | 3 | Legendary | ×8 | 約 2,993 CAT42 |
 
-## サイト手数料（請求額の 5% を ZAP にしてバーン）
+## サイト手数料（請求の前に ZAP で前払い・バーン）
 
-このサイトから請求すると、請求の直後に **サイト手数料** のステップが同じ流れで続きます
-（2026-11-09 のユーザー決定：案2・5%）。
+このサイトから請求するには、**請求の前に** サイト手数料を ZAP で払います
+（2026-11-09 のユーザー決定：ZAP 前払いのみ。当初案の「請求後に CAT42 を交換して
+バーン」は、承認を拒否すれば回避できる抜け道があったため廃止）。
 
-- 手数料は **実際に受け取った CAT42 の 5%**（実測の残高差分ベース。プレビュー合計では
-  ありません — `claimMany` の中でも受取額は減っていくため）。切り捨てで 0 になる場合は
-  手数料なしで、その旨を画面に表示します。
-- 手順は各ステップをウォレットで確認しながら進みます:
-  1. CAT42 を Infinite ルーターへ承認（既存の承認で足りる場合は省略）
-  2. 手数料分の CAT42 を CAT42/ZAP プールで ZAP にスワップ（直前の見積もりから
-     スリッページ許容 2% で下限を設定、期限 10 分）。受け取った ZAP は残高差分で実測
-     （読めない場合はレシートの Transfer ログで代替）
-  3. 受け取った ZAP を **全額** バーンアドレス `0x000000000000000000000000000000000000dEaD`
-     へ送金（42 ファウセットの ZAP バーンと同じ方式）
-- **開示は事前に大きく**: 請求ボタンの上のサマリーに、手数料の説明と見積もり
-  （手数料 CAT42 量＋見積もり時点の ZAP 量）を EN/JA 両方で表示します。完了画面には
-  「受け取った CAT42 / 手数料 CAT42 / バーンした ZAP」と各 tx の記録リンクが出ます。
-- **中断しても再開できます**: ウォレットで拒否（4001）したり途中でページを閉じても、
-  請求自体は完了したまま。未完了の手数料は最小限の記録（アドレス・手数料 CAT42・段階）
-  を localStorage に残し、同じウォレットで再訪すると「手数料の続きをする」ボタンで
-  再開できます。バーン送信後は再送せず、確認だけを行います。バーン tx の成功に加え、
-  「ZAP がユーザーからバーンアドレスへ動いたログ」または「ZAP 残高の減少が金額と一致」
-  を確認できるまで、手数料を「完了」とは表示しません。
+- 手数料は **請求見込み額（未請求 Guide の preview 合計）の 5%**（切り捨て）を、
+  その時点の CAT42/ZAP レート（ルーターの `getAmountsOut`）で ZAP に換算した量です。
+  切り捨てで 0 になる場合は手数料なしで、そのまま請求できます。
+- **順番が要です**: 請求ボタンは、バーンがレシートで検証できるまでロックされたままです。
+  ユーザーがウォレットで確認するのは **ZAP をバーンアドレス
+  `0x000000000000000000000000000000000000dEaD` へ送る 1 回の送金だけ**（42 ファウセットの
+  ZAP バーンと同じ方式）。バーンが確認できた直後に請求が自動で始まるので、
+  「払ったのに請求しないまま離脱する」窓も最小にしています。サイトの流れの中では
+  「先に請求して手数料だけ回避する」隙間はありません。
+- **情報のゲーティング**: 手数料を払う前に見えるのは、スキャンの進捗・件数・
+  **見込み合計（Σ preview）と手数料** だけです。どの Guide が未請求か（ID・ティア・
+  個別の見込み額）は、バーンの検証が済むまで画面に出しません（DOM 自体を作りません）。
+  このサイトのスキャンこそが対価の対象であり、一覧を先に見せると、それを持って
+  コントラクトを直接叩き、手数料を回避できてしまうためです。
+- **ZAP が足りない場合**: サイトからは先へ進めません。不足量を表示し、入手方法を
+  案内します（42 ファウセットで 1 ZAP ずつもらえる／DEX で買える）。他の方法への
+  黙ったフォールバックはしません。
+- **開示（バーンの前に、細字ではなく大きく）**:
+  (1) 手数料は **見込み額** から計算します。実際の受取額は、請求の中で Guide ごとに
+  少しずつ減るため、表示と少し違うことがあります。
+  (2) 前払いした ZAP はバーンされるため、**あとで請求をやめても、請求が通らなくても、
+  戻ってきません**。
+- **再開と二重請求の防止**: バーンを送った時点で、最小限の記録（アドレス・対象 Guide の
+  ID 集合と指紋・feeZAP・バーン tx・段階）を localStorage に残します。タブを閉じても、
+  同じウォレットで戻ればバーンはレシートから検証だけを行い（**再送はしません**）、
+  請求ステップから再開できます。対象 ID の一部が他で請求済みになっていた場合は、
+  残りの ID に対して支払い済み記録をそのまま認め、**同じ ID に二重に請求しません**。
 - **正直な注記**: これは **サイト利用料** です。CAT42 コントラクトの `claimMany` は
   誰でも直接呼べるため、サイトを通さない請求には手数料はかかりません（請求は Guide
   保有者本人しか呼べない設計上、請求を肩代わりして強制する作りにはできません）。
-  サイトを使う人は、事前表示を見て納得したうえで手数料ステップに進む形です。
+  また、ZAP を持っていない人は、まず ZAP を用意する必要があります。
 
 関連アドレス: ZAP `0x89195Ca5C954b6f99b78f4A2Aa5435A75Dc5B256` /
 Infinite ルーター `0xBF07dFE35746894bAe373f63f4Bf2379F9BaFEc0` /
@@ -86,13 +96,17 @@ CAT42/ZAP ペア `0xc6386fcca45591e604edc3f512465d0ebad79944`
 - **請求**: 未請求が100件以下なら `claimMany` 1回。100件超は100件ずつに分けて順番に送信します
   （各回ウォレット確認あり、進捗を表示）。ガスは `eth_estimateGas` の実測 + 20% バッファ。
   受け取り額は、送信前後の CAT42 残高の差分として表示します（読めない場合は金額を出さず
-  「完了」とだけ表示します。その場合、手数料も測れないので取りません）。
-- **手数料フェーズ**: 請求成功の直後に上記「サイト手数料」の承認→スワップ→バーンを
-  続けて実行します（`approve` / `swapExactTokensForTokens` / `transfer` の calldata も手組み、
-  ルーター見積もりは `getAmountsOut` を RPC 読み）。状態は localStorage の
-  `cat42claim_pending_fee_v1` に最小限だけ保存し、再開時は段階に応じて
-  「承認済みか再読 → スワップ未送信なら送信（送信済みならレシート確認）→ バーンは
-  再送せず検証のみ」という冪等な作りにしています。
+  「完了」とだけ表示します）。請求は手数料ゲート（`computeClaimAccess`）が unlocked の
+  ときだけ、そのゲートが解放した ID 集合に対して実行されます。
+- **手数料（前払い）**: スキャン後に preview 合計の 5% を CAT42 相当とし、ルーター見積もり
+  （`getAmountsOut` を RPC 読み）で ZAP に換算。ZAP 残高が足りればバーン送金 1 回
+  （`transfer` の calldata も手組み）→ レシートの Transfer ログ（本人 → バーンアドレス、
+  金額一致）で検証 → 請求を自動開始。状態は localStorage の `cat42claim_prepaid_fee_v2`
+  に最小限だけ保存し、再開時は「バーン済みなら検証のみ・再送なし」「支払い済み記録は
+  残り ID にそのまま適用」という冪等な作りにしています。旧設計（請求後スワップ方式）の
+  `cat42claim_pending_fee_v1` 記録は無視して消去します。ゲート判定・指紋・検証は純粋関数
+  （`computeClaimAccess` / `idsFingerprint` / `honoredClaimIds` / `receiptBurnVerified`）
+  に切り出し、`tools/verify.js` で全状態を検証しています。
 - **RPC**: `https://evm-rpc.infinitepanda.xyz`（主）/ `https://evm-rpc-infinite.mschihuahua.org`（予備）。
   読み取りはウォレット不要で、接続前でも全体統計（請求総数・プール残高・Guide 発行数）を表示します。
 - **チェーン切替**: 421018 でない場合は `wallet_switchEthereumChain`、未登録（4902）なら
@@ -112,16 +126,23 @@ CAT42/ZAP ペア `0xc6386fcca45591e604edc3f512465d0ebad79944`
 
 実際の請求トランザクションは送信していません（検証は読み取りのみ）。
 
-### 検証（2026-11-09 追加、手数料フェーズ）
+### 検証（2026-11-09 追加、前払い ZAP 手数料）
 
-`tools/verify.js` に手数料まわりの確認を追加し、全て合格:
+当初案（請求後に CAT42 をスワップしてバーン）は同日に前払い方式へ設計変更。
+`tools/verify.js` の手数料まわりの確認を新しい設計に合わせて全て合格（全 86 項目）:
 
-- 手数料計算: 5%・切り捨て・0 のケース（19 wei → 0）・文字列 wei の受け付け
-- calldata 往復: `approve`（spender/金額）/ `transfer`（バーン先/金額）/
-  `swapExactTokensForTokens`（path オフセット 160・CAT42→ZAP・期限）/ `getAmountsOut`
-- ルーター見積もり（ライブ読み取り）: 400 CAT42 → 約 0.9653 ZAP（想定レートの範囲内）
-- レシートログ解析（ZAP 受取の代替測定）が ZAP 以外・宛先違いを数えないこと
-- EN/JA 両シェルに手数料 UI の要素と両言語の手数料文言があること、`app.js?v=2` の読み込み
+- 手数料計算: preview 合計からの 5%・切り捨て・0 のケース（19 wei → 0）・文字列 wei の
+  受け付け・複数 Guide の preview 合計からの計算
+- calldata 往復: バーン送金 `transfer`（バーン先/金額、手数料サイズの金額も）/ `getAmountsOut`
+- ルーター見積もり（ライブ読み取り）: 400 CAT42 → 約 0.9653 ZAP、見込み 400 CAT42 の
+  手数料 20 CAT42 → 約 0.0483 ZAP（想定レートの範囲内）
+- ID 集合の指紋（順不同で安定）と、支払い済み記録と未請求集合の積集合（再開時の適用範囲）
+- ゲート状態の全分岐: バーン検証なし（または 0 円でない手数料）では請求に到達できないこと、
+  残高不足は不足額つき insufficient、支払い済み記録は見積もり・残高を読まずに解放し
+  二重請求にならないこと、記録と無関係な新しい集合は解放しないこと
+- レシートによるバーン検証: 金額・宛先・送信者・成功ステータスのいずれが欠けても不可
+- EN/JA 両シェルに手数料 UI の要素と両言語の開示文言（前払い・見込み計算・返金不可）が
+  あること、`app.js?v=3` の読み込み、スワップ方式のコードが残っていないこと
 
 実際の請求＋手数料の送信はこの環境からは行っていません。**最初の実請求＋手数料の
 一連の流れが、エンドツーエンドの最終確認**になります。
@@ -152,14 +173,30 @@ claim, and the vault decays daily — so displayed amounts are "if you claim now
 estimates. Vanilla JS only, no libraries, no build step. Verified against the live
 chain on 2026-11-07 with `tools/verify.js` (read-only; no claim was sent). MIT license.
 
-**Site fee (added 2026-11-09):** claiming through this site continues, in the same
-flow, into a fee phase — 5% of the CAT42 actually received (measured balance diff,
-rounded down; skipped if it rounds to 0) is swapped into ZAP on the CAT42/ZAP pool
-and all of that ZAP is burned to `0x000…dEaD`. The fee is disclosed in the summary
-above the claim button with live estimates (EN/JA), the completion screen shows
-received / fee / burned amounts with explorer links, and an interrupted fee phase
-persists a minimal localStorage record so it can be resumed with the same wallet
-(the burn is never re-sent, only verified). It is a site-usage fee: `claimMany`
-is permissionless, so claiming directly against the contract does not pass through
-this site and carries no fee. Fee checks were added to `tools/verify.js` and pass;
-no real claim+fee run has been sent yet — the first user run is the end-to-end check.
+**Site fee (prepaid ZAP, redesigned 2026-11-09):** the fee is paid BEFORE the
+claim, in ZAP only — 5% of the estimated claim (the sum of `preview()` over the
+Guides to be claimed, rounded down; no fee if it rounds to 0), converted at the
+live CAT42/ZAP router quote, burned in a single `transfer` to `0x000…dEaD`. The
+claim button stays locked until the burn is verified from its receipt (exact
+ZAP Transfer from the user to the burn address), so inside the site flow there
+is no claim-first-dodge-later gap — the earlier post-claim swap design had
+exactly that loophole (reject the approval, keep everything) and was replaced.
+Until the burn verifies, the UI shows only the scan progress, counts, the
+estimated total and the fee — never which Guides are unclaimed (no ids, tiers
+or per-Guide amounts are rendered), because the scan is the work being paid
+for: revealing the list first would let a user take it and claim directly.
+Disclosed up front, in plain words (EN/JA): the fee is computed from estimates
+(actual payouts decay inside `claimMany`), and a prepaid burn cannot be
+refunded even if the claim is then cancelled or fails — the claim therefore
+auto-starts the moment the burn confirms. If the user's ZAP balance is short,
+the site stops there with the shortfall and honest guidance (42 faucet: 1 ZAP
+per claim; or buy ZAP on the DEX) — there is no silent fallback route. A
+minimal localStorage record (address, id set + fingerprint, feeZAP, burn tx,
+stage) makes a sent burn binding on return: it is verified from the receipt,
+never re-sent, and if some of its Guides were claimed elsewhere meanwhile the
+record is honored for the remaining ids — the same ids are never charged
+twice. It remains a site-usage fee: `claimMany` is permissionless, so claiming
+directly against the contract does not pass through this site and carries no
+fee, and users without ZAP must obtain some first. Fee checks in
+`tools/verify.js` were rewritten for this design and pass (86 checks); no real
+claim+fee run has been sent yet — the first user run is the end-to-end check.

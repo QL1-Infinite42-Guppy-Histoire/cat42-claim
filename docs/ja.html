@@ -117,12 +117,12 @@
     </details>
   </section>
 
-  <!-- Site fee phase (runs after a claim; resumable) -->
+  <!-- Site fee (prepaid in ZAP before the claim; a sent burn is verified, never re-sent) -->
   <section class="panel" id="feePanel" hidden>
-    <h2 id="feePendingTitle">サイト手数料がまだ終わっていません</h2>
+    <h2 id="feePendingTitle">サイト手数料（先払い）</h2>
     <p class="note" id="feePendingText"></p>
     <div class="row">
-      <button type="button" id="feeResumeBtn" class="small-btn">手数料の続きをする</button>
+      <button type="button" id="feeResumeBtn" class="small-btn">手数料を払う</button>
     </div>
     <p class="progress" id="feeProgress" role="status"></p>
     <div id="feeResult" class="result" role="status"></div>
@@ -144,7 +144,7 @@
   <p id="footerText"></p>
 </footer>
 
-<script src="app.js?v=2"></script>
+<script src="app.js?v=3"></script>
 <script>
 (function(){
   var btn=document.getElementById("themeToggle");
