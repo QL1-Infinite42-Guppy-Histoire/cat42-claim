@@ -5,6 +5,17 @@
 
 var CAT42 = "0x7386719EBbBeB4d810fF89027Bfb8A1CDf696310";
 var GUIDE = "0xF349E469C474048DEd6F9b914309E76880ED1bbD";
+var ZAP = "0x89195Ca5C954b6f99b78f4A2Aa5435A75Dc5B256";
+var ROUTER = "0xBF07dFE35746894bAe373f63f4Bf2379F9BaFEc0"; // Infinite router (42 Chain)
+var BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
+/* Site fee: 5% of the CAT42 actually received in a claim session is swapped
+   to ZAP and all of that ZAP is burned. See README "サイト手数料". */
+var FEE_NUM = 5n;
+var FEE_DEN = 100n;
+var FEE_SLIPPAGE_NUM = 98n; // swap accepts >= 98% of the fresh quote
+var FEE_SLIPPAGE_DEN = 100n;
+var FEE_DEADLINE_SECS = 600; // 10 minutes
+var PENDING_FEE_KEY = "cat42claim_pending_fee_v1";
 var CHAIN_ID_HEX = "0x66c9a"; // 421018
 var RPCS = [
   "https://evm-rpc.infinitepanda.xyz",
@@ -24,7 +35,12 @@ var SEL = {
   ignited: "0x66092ea8",
   ownerOf: "0x6352211e",
   nextId: "0x61b8ce8c",
-  tier: "0x6dda34db"
+  tier: "0x6dda34db",
+  approve: "0x095ea7b3",
+  allowance: "0xdd62ed3e",
+  transfer: "0xa9059cbb",
+  swapExactTokensForTokens: "0x38ed1739",
+  getAmountsOut: "0xd06ca61f"
 };
 
 var TIER_MUL = [1, 2, 4, 8];
@@ -89,7 +105,27 @@ var I18N = {
     txLink: "See the record",
     txFailed: "The claim did not go through. No CAT42 was claimed. You can try again.",
     nothingToClaim: "There is nothing to claim right now.",
-    estimating: "Checking the fee…"
+    estimating: "Checking the fee…",
+    feeTitle: "About the site fee",
+    feeNote: "This site takes a small fee. Of the CAT42 you claim here, 5% is swapped into a token called ZAP, and all of that ZAP is burned (sent to an address nobody can ever use). The other 95% is all yours. The fee steps happen right after your claim, in this same flow — your wallet will ask you to confirm each step. The fee only applies when you claim through this site.",
+    feeEstimate: "If you claim now: fee about {fee} CAT42 → swapped into about {zap} ZAP and burned.",
+    feeEstimateNoZap: "If you claim now: fee about {fee} CAT42 (swapped into ZAP and burned).",
+    feeZeroNote: "For this claim, 5% rounds down to 0, so no fee is taken.",
+    feeNotMeasured: "We could not measure exactly how much CAT42 arrived, so no site fee was taken this time.",
+    feeApproveStep: "Site fee, step 1 of 3: please confirm the approval in your wallet.",
+    feeSwapStep: "Site fee, step 2 of 3: swapping the fee CAT42 into ZAP. Please confirm in your wallet.",
+    feeBurnStep: "Site fee, step 3 of 3: burning the ZAP. Please confirm in your wallet.",
+    feeWaiting: "Waiting for the network to finish…",
+    feeDoneLine: "Site fee: {fee} CAT42 was swapped into {zap} ZAP, and all of that ZAP was burned.",
+    feeDoneTitle: "Site fee — done",
+    feePendingTitle: "Site fee not finished yet",
+    feePendingText: "Your claim itself is complete and your CAT42 is safe. Only the site fee is left: {fee} CAT42 still needs to be swapped into ZAP and burned. Tap the button below to finish — your wallet will ask you to confirm each step.",
+    feeResumeBtn: "Finish the fee steps",
+    feeRejected: "You cancelled in your wallet. The fee is not finished yet — you can continue any time with the button below.",
+    feeFailed: "A fee step did not go through. Your claimed CAT42 is safe, and the fee is not finished yet — you can continue any time with the button below.",
+    feeUnconfirmed: "The burn was sent, but we could not confirm the final numbers yet. Please check the record link, then tap the button to check again — do not worry, the fee will not be charged twice.",
+    feeNothingToBurn: "There was no ZAP left to burn, so the fee is closed.",
+    feeCheckAgainBtn: "Check the fee again"
   },
   ja: {
     pageTitle: "CAT42 請求 🐱",
@@ -149,7 +185,27 @@ var I18N = {
     txLink: "記録を見る",
     txFailed: "請求できませんでした。CAT42 は請求されていません。もう一度お試しください。",
     nothingToClaim: "いま請求できるものはありません。",
-    estimating: "手数料を調べています…"
+    estimating: "手数料を調べています…",
+    feeTitle: "サイト手数料について",
+    feeNote: "このサイトでは、ささやかな手数料をいただいています。ここで請求した CAT42 のうち 5% を ZAP というトークンに交換し、その ZAP はすべてバーン（誰も使えないアドレスへの送金）します。残りの 95% はすべてあなたのものです。手数料のステップは請求の直後に同じ流れで進みます — そのつどウォレットで確認をお願いします。この手数料は、このサイトから請求した場合にだけかかります。",
+    feeEstimate: "いま請求すると、手数料は約 {fee} CAT42 → 約 {zap} ZAP に交換してバーンします。",
+    feeEstimateNoZap: "いま請求すると、手数料は約 {fee} CAT42 です（ZAP に交換してバーンします）。",
+    feeZeroNote: "今回の請求では、5% が切り捨てで 0 になるため、手数料はいただきません。",
+    feeNotMeasured: "受け取った CAT42 の量を正確に測れなかったため、今回は手数料をいただきませんでした。",
+    feeApproveStep: "サイト手数料 1/3: ウォレットで承認を確認してください。",
+    feeSwapStep: "サイト手数料 2/3: 手数料分の CAT42 を ZAP に交換します。ウォレットで確認してください。",
+    feeBurnStep: "サイト手数料 3/3: ZAP をバーンします。ウォレットで確認してください。",
+    feeWaiting: "ネットワークの完了を待っています…",
+    feeDoneLine: "サイト手数料: {fee} CAT42 を {zap} ZAP に交換し、その ZAP をすべてバーンしました。",
+    feeDoneTitle: "サイト手数料 — 完了",
+    feePendingTitle: "サイト手数料がまだ終わっていません",
+    feePendingText: "請求そのものは完了していて、あなたの CAT42 は無事です。残っているのはサイト手数料だけです： {fee} CAT42 を ZAP に交換してバーンするところまで進めてください。下のボタンを押すと続きができます — そのつどウォレットで確認をお願いします。",
+    feeResumeBtn: "手数料の続きをする",
+    feeRejected: "ウォレットでキャンセルされました。手数料はまだ終わっていません — 下のボタンでいつでも続きができます。",
+    feeFailed: "手数料のステップが通りませんでした。請求した CAT42 は無事です。手数料はまだ終わっていません — 下のボタンでいつでも続きができます。",
+    feeUnconfirmed: "バーンは送信しましたが、最後の数字をまだ確認できていません。記録のリンクを確認してから、下のボタンで再確認してください — 手数料が二重にかかることはありません。",
+    feeNothingToBurn: "バーンする ZAP が残っていなかったため、手数料は終了しました。",
+    feeCheckAgainBtn: "手数料を再確認する"
   }
 };
 
@@ -196,6 +252,58 @@ function formatCAT(wei) {
 function formatInt(n) { return commas(String(n)); }
 function template(str, vars) {
   return str.replace(/\{(\w+)\}/g, function (_, k) { return vars && vars[k] !== undefined ? String(vars[k]) : "{" + k + "}"; });
+}
+
+/* ---------- site fee helpers (pure) ---------- */
+/* 5% of what actually arrived, rounded down. 0 means: no fee phase. */
+function computeFeeWei(receivedWei) {
+  var w = typeof receivedWei === "bigint" ? receivedWei : BigInt(receivedWei);
+  if (w <= 0n) return 0n;
+  return w * FEE_NUM / FEE_DEN;
+}
+function encodeApprove(spender, amountWei) {
+  return callData(SEL.approve, encodeAddress(spender) + encodeUint(amountWei));
+}
+function encodeTransfer(to, amountWei) {
+  return callData(SEL.transfer, encodeAddress(to) + encodeUint(amountWei));
+}
+function encodeSwapExactTokensForTokens(amountInWei, amountOutMinWei, path, to, deadlineSecs) {
+  var head = encodeUint(amountInWei) + encodeUint(amountOutMinWei) + encodeUint(160) +
+    encodeAddress(to) + encodeUint(deadlineSecs);
+  var tail = encodeUint(path.length);
+  for (var i = 0; i < path.length; i++) tail += encodeAddress(path[i]);
+  return callData(SEL.swapExactTokensForTokens, head + tail);
+}
+function encodeGetAmountsOut(amountInWei, path) {
+  var tail = encodeUint(path.length);
+  for (var i = 0; i < path.length; i++) tail += encodeAddress(path[i]);
+  return callData(SEL.getAmountsOut, encodeUint(amountInWei) + encodeUint(64) + tail);
+}
+/* getAmountsOut returns uint256[] — decode to an array of BigInt (or null). */
+function decodeAmountsOut(hex) {
+  if (!hex || typeof hex !== "string" || hex.length < 2 + 128) return null;
+  var body = hex.slice(2);
+  var len = Number(BigInt("0x" + body.slice(64, 128)));
+  if (!(len > 0) || body.length < 128 + len * 64) return null;
+  var out = [];
+  for (var i = 0; i < len; i++) out.push(BigInt("0x" + body.slice(128 + i * 64, 192 + i * 64)));
+  return out;
+}
+/* ZAP received in a swap, parsed from the receipt's Transfer logs (fallback
+   when balance reads fail): sum of ZAP transfers TO the user in this tx. */
+function zapReceivedFromLogs(receipt, userAddress) {
+  if (!receipt || !Array.isArray(receipt.logs)) return null;
+  var userTopic = "0x" + encodeAddress(userAddress);
+  var total = 0n;
+  var found = false;
+  receipt.logs.forEach(function (log) {
+    if (!log || !log.address || log.address.toLowerCase() !== ZAP.toLowerCase()) return;
+    if (!log.topics || log.topics.length < 3) return;
+    if (String(log.topics[0]).toLowerCase() !== "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef") return;
+    if (String(log.topics[2]).toLowerCase() !== userTopic.toLowerCase()) return;
+    try { total += BigInt(log.data); found = true; } catch (e) { /* skip bad log */ }
+  });
+  return found ? total : null;
 }
 
 /* ---------- RPC (batch eth_call, with fallback) ---------- */
@@ -259,6 +367,27 @@ async function getGlobalStats(rpcUrls) {
 async function getCatBalance(address, rpcUrls) {
   var r = await rpcSingle(CAT42, callData(SEL.balanceOf, encodeAddress(address)), rpcUrls);
   return r ? decodeUint(r) : null;
+}
+async function getErc20Balance(token, address, rpcUrls) {
+  var r = await rpcSingle(token, callData(SEL.balanceOf, encodeAddress(address)), rpcUrls);
+  return r ? decodeUint(r) : null;
+}
+async function getZapBalance(address, rpcUrls) {
+  return getErc20Balance(ZAP, address, rpcUrls);
+}
+async function getCatAllowance(owner, spender, rpcUrls) {
+  var r = await rpcSingle(CAT42, callData(SEL.allowance, encodeAddress(owner) + encodeAddress(spender)), rpcUrls);
+  return r ? decodeUint(r) : null;
+}
+/* Fresh router quote: how much ZAP `amountInWei` CAT42 buys right now.
+   Returns the output BigInt, or null when the quote cannot be read. */
+async function quoteZapOut(amountInWei, rpcUrls) {
+  var w = typeof amountInWei === "bigint" ? amountInWei : BigInt(amountInWei);
+  if (w <= 0n) return null;
+  var r = await rpcSingle(ROUTER, encodeGetAmountsOut(w, [CAT42, ZAP]), rpcUrls);
+  var amounts = decodeAmountsOut(r);
+  if (!amounts || amounts.length < 2) return null;
+  return amounts[amounts.length - 1];
 }
 
 /* Scan: find every Guide owned by `owner`, then claim state.
@@ -352,12 +481,19 @@ async function scanOwnedGuides(owner, opts) {
 /* Export for the Node verification harness. */
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    CAT42: CAT42, GUIDE: GUIDE, SEL: SEL, RPCS: RPCS, TIER_MUL: TIER_MUL,
+    CAT42: CAT42, GUIDE: GUIDE, ZAP: ZAP, ROUTER: ROUTER, BURN_ADDRESS: BURN_ADDRESS,
+    SEL: SEL, RPCS: RPCS, TIER_MUL: TIER_MUL,
     encodeUint: encodeUint, encodeAddress: encodeAddress, encodeClaimMany: encodeClaimMany,
     decodeUint: decodeUint, decodeAddress: decodeAddress, chunkArray: chunkArray,
     formatCAT: formatCAT, rpcBatch: rpcBatch, rpcSingle: rpcSingle,
     getGlobalStats: getGlobalStats, getCatBalance: getCatBalance,
-    scanOwnedGuides: scanOwnedGuides
+    scanOwnedGuides: scanOwnedGuides,
+    computeFeeWei: computeFeeWei, encodeApprove: encodeApprove, encodeTransfer: encodeTransfer,
+    encodeSwapExactTokensForTokens: encodeSwapExactTokensForTokens,
+    encodeGetAmountsOut: encodeGetAmountsOut, decodeAmountsOut: decodeAmountsOut,
+    zapReceivedFromLogs: zapReceivedFromLogs,
+    getErc20Balance: getErc20Balance, getZapBalance: getZapBalance,
+    getCatAllowance: getCatAllowance, quoteZapOut: quoteZapOut
   };
 }
 
@@ -369,7 +505,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     function t(key, vars) { return template(S[key] || key, vars); }
     function $(id) { return document.getElementById(id); }
 
-    var state = { address: null, scan: null, claiming: false };
+    var state = { address: null, scan: null, claiming: false, feeRunning: false, feeSticky: false };
 
     function applyI18n() {
       document.title = lang === "ja" ? "CAT42 請求 — ガイドを持っている方へ" : "CAT42 Claim — for Guide holders";
@@ -384,6 +520,8 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
         totalLabel: "totalLabel", totalNote: "totalNote",
         ownedLabel: "ownedLabel", unclaimedLabel: "unclaimedLabel", claimedLabel: "claimedLabel",
         unclaimedTitle: "unclaimedTitle", claimedSummary: "claimedSummary",
+        feeTitle: "feeTitle", feeNote: "feeNote",
+        feePendingTitle: "feePendingTitle",
         safeTitle: "safeTitle", safe1: "safe1", safe2: "safe2", safe3: "safe3",
         contractLine: "contractLine", footerText: "footerText"
       };
@@ -454,6 +592,23 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
       }
     }
 
+    /* Disclosure estimate above the claim button: fee from the preview total,
+       with a fresh ZAP quote when it can be read. */
+    async function updateFeeEstimate(scan) {
+      var el = $("feeEstimate");
+      if (!el) return;
+      var feeEst = computeFeeWei(BigInt(scan.totalPreviewWei));
+      if (scan.unclaimed.length === 0) { el.textContent = ""; return; }
+      if (feeEst <= 0n) { el.textContent = S.feeZeroNote; return; }
+      el.textContent = t("feeEstimateNoZap", { fee: formatCAT(feeEst) });
+      try {
+        var zapEst = await quoteZapOut(feeEst);
+        if (zapEst !== null && zapEst > 0n && state.scan === scan) {
+          el.textContent = t("feeEstimate", { fee: formatCAT(feeEst), zap: formatCAT(zapEst) });
+        }
+      } catch (e) { /* keep the CAT42-only estimate */ }
+    }
+
     function renderScan(scan) {
       state.scan = scan;
       $("mainPanel").hidden = false;
@@ -476,6 +631,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
         claimBtn.disabled = true;
         claimBtn.textContent = S.claimBtnNone;
       }
+      updateFeeEstimate(scan);
 
       var list = $("unclaimedList");
       list.innerHTML = "";
@@ -554,6 +710,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
         $("scanProgress").textContent = "";
         renderScan(scan);
         await refreshCatBalance();
+        refreshFeePanel();
       } catch (e) {
         $("scanProgress").textContent = "";
         setResult($("connectResult"), S.scanFailed, "error");
@@ -587,6 +744,297 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
         await new Promise(function (res) { setTimeout(res, 2000); });
       }
       return null;
+    }
+
+    /* ---------- site fee phase ----------
+       Runs after a successful claim, in the same session. A minimal record is
+       kept in localStorage so an interrupted fee (wallet rejected, page
+       closed) can be resumed later with the same wallet. The fee is only
+       reported done when the burn is confirmed AND the ZAP movement checks
+       out (receipt Transfer log to the burn address, or balance diff). */
+    function loadPendingFee() {
+      try {
+        var raw = localStorage.getItem(PENDING_FEE_KEY);
+        if (!raw) return null;
+        var r = JSON.parse(raw);
+        if (!r || !r.address || !r.feeWei || !r.stage) return null;
+        return r;
+      } catch (e) { return null; }
+    }
+    function savePendingFee(r) {
+      try { localStorage.setItem(PENDING_FEE_KEY, JSON.stringify(r)); } catch (e) {}
+    }
+    function clearPendingFee() {
+      try { localStorage.removeItem(PENDING_FEE_KEY); } catch (e) {}
+    }
+    function feeErr(msg, hash) {
+      var e = new Error(msg);
+      if (hash) e.hash = hash;
+      return e;
+    }
+    function txLinkDiv(hash) {
+      var div = document.createElement("div");
+      var a = document.createElement("a");
+      a.href = EXPLORER + "/tx/" + hash;
+      a.target = "_blank"; a.rel = "noreferrer";
+      a.textContent = S.txLink + ": " + hash.slice(0, 10) + "…" + hash.slice(-6);
+      div.appendChild(a);
+      return div;
+    }
+    async function pollZapBalance() {
+      for (var i = 0; i < 4; i++) {
+        var b = await getZapBalance(state.address).catch(function () { return null; });
+        if (b !== null) return b;
+        await new Promise(function (res) { setTimeout(res, 1500); });
+      }
+      return null;
+    }
+    /* Send via the wallet with the site's usual gas estimate (+20%).
+       Returns { hash, receipt } — receipt may be null if it is still
+       pending after the wait; callers must not blindly resend then. */
+    async function sendWalletTx(to, data, progressMsg) {
+      var gasHex = null;
+      try {
+        var est = await window.ethereum.request({
+          method: "eth_estimateGas",
+          params: [{ from: state.address, to: to, data: data }]
+        });
+        gasHex = "0x" + (BigInt(est) * 120n / 100n).toString(16);
+      } catch (e) { gasHex = null; }
+      var txParams = { from: state.address, to: to, data: data };
+      if (gasHex) txParams.gas = gasHex;
+      if (progressMsg) $("feeProgress").textContent = progressMsg;
+      var hash = await window.ethereum.request({ method: "eth_sendTransaction", params: [txParams] });
+      $("feeProgress").textContent = S.feeWaiting;
+      var receipt = await waitReceipt(hash);
+      return { hash: hash, receipt: receipt };
+    }
+    async function getReceiptViaWallet(hash) {
+      try {
+        return await window.ethereum.request({ method: "eth_getTransactionReceipt", params: [hash] });
+      } catch (e) { return null; }
+    }
+    /* Proof the burn happened: the burn tx succeeded AND either its logs show
+       the ZAP moving from the user to the burn address, or (when a pre-burn
+       balance was recorded) the ZAP balance dropped by exactly the amount. */
+    async function verifyBurn(record) {
+      if (!record.burnTx) return false;
+      var receipt = await getReceiptViaWallet(record.burnTx);
+      if (!receipt || receipt.status !== "0x1") return false;
+      var amt = BigInt(record.burnAmountWei || "0");
+      if (Array.isArray(receipt.logs)) {
+        var burnTopic = "0x" + encodeAddress(BURN_ADDRESS);
+        var userTopic = "0x" + encodeAddress(state.address);
+        for (var i = 0; i < receipt.logs.length; i++) {
+          var log = receipt.logs[i];
+          if (!log || !log.address || log.address.toLowerCase() !== ZAP.toLowerCase()) continue;
+          if (!log.topics || log.topics.length < 3) continue;
+          if (String(log.topics[0]).toLowerCase() !== "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef") continue;
+          if (String(log.topics[1]).toLowerCase() !== userTopic.toLowerCase()) continue;
+          if (String(log.topics[2]).toLowerCase() !== burnTopic.toLowerCase()) continue;
+          try { if (BigInt(log.data) === amt) return true; } catch (e) { /* keep checking */ }
+        }
+      }
+      if (record.zapBalBefore !== null && record.zapBalBefore !== undefined) {
+        var after = await pollZapBalance();
+        if (after !== null && BigInt(record.zapBalBefore) - after === amt) return true;
+      }
+      return false;
+    }
+
+    function setFeeProgress(msg) { var el = $("feeProgress"); if (el) el.textContent = msg || ""; }
+
+    function finishFeeUi(kind, record, hashes, err) {
+      hashes = hashes || {};
+      setFeeProgress("");
+      state.feeSticky = true;
+      $("feePanel").hidden = false;
+      var title = $("feePendingTitle");
+      var text = $("feePendingText");
+      var btn = $("feeResumeBtn");
+      var box = $("feeResult");
+      box.innerHTML = "";
+      if (kind === "done" || kind === "closed") {
+        title.textContent = S.feeDoneTitle;
+        text.textContent = "";
+        btn.hidden = true;
+        box.className = "result ok";
+        var line = document.createElement("div");
+        if (kind === "done") {
+          line.textContent = t("feeDoneLine", {
+            fee: formatCAT(BigInt(record.feeWei)),
+            zap: formatCAT(BigInt(record.burnAmountWei || record.zapWei || "0"))
+          });
+        } else {
+          line.textContent = S.feeNothingToBurn;
+        }
+        box.appendChild(line);
+      } else {
+        title.textContent = S.feePendingTitle;
+        text.textContent = t("feePendingText", { fee: formatCAT(BigInt(record.feeWei)) });
+        btn.hidden = false;
+        btn.textContent = record.burnTx ? S.feeCheckAgainBtn : S.feeResumeBtn;
+        box.className = "result error";
+        var msg = document.createElement("div");
+        if (kind === "rejected") msg.textContent = S.feeRejected;
+        else if (kind === "unconfirmed") msg.textContent = S.feeUnconfirmed;
+        else msg.textContent = S.feeFailed;
+        box.appendChild(msg);
+      }
+      ["approve", "swap", "burn"].forEach(function (k) {
+        if (hashes[k]) box.appendChild(txLinkDiv(hashes[k]));
+      });
+      if (err && err.hash && !hashes.approve && !hashes.swap && !hashes.burn) {
+        box.appendChild(txLinkDiv(err.hash));
+      }
+    }
+
+    function refreshFeePanel() {
+      var panel = $("feePanel");
+      if (!panel) return;
+      var record = loadPendingFee();
+      if (state.address && record && record.address.toLowerCase() === state.address.toLowerCase()) {
+        state.feeSticky = true;
+        panel.hidden = false;
+        $("feePendingTitle").textContent = S.feePendingTitle;
+        $("feePendingText").textContent = t("feePendingText", { fee: formatCAT(BigInt(record.feeWei)) });
+        var btn = $("feeResumeBtn");
+        btn.hidden = false;
+        btn.textContent = record.burnTx ? S.feeCheckAgainBtn : S.feeResumeBtn;
+      } else if (!state.feeSticky) {
+        panel.hidden = true;
+      }
+    }
+
+    async function runFeePhase() {
+      var record = loadPendingFee();
+      if (!record || !state.address || state.feeRunning) return;
+      if (record.address.toLowerCase() !== state.address.toLowerCase()) return;
+      state.feeRunning = true;
+      state.feeSticky = true;
+      $("feePanel").hidden = false;
+      $("feeResumeBtn").hidden = true;
+      $("feeResult").innerHTML = "";
+      var feeWei = BigInt(record.feeWei);
+      var hashes = record.hashes || {};
+      try {
+        try { await ensureChain(); } catch (e) { /* the wallet will surface it on send */ }
+
+        if (record.stage === "swap") {
+          /* A previous swap send may already be on its way — check first. */
+          var swapReceipt = null;
+          if (record.pendingSwapTx) {
+            swapReceipt = await getReceiptViaWallet(record.pendingSwapTx);
+            if (swapReceipt && swapReceipt.status !== "0x1") {
+              delete record.pendingSwapTx; savePendingFee(record); swapReceipt = null;
+            } else if (!swapReceipt) {
+              finishFeeUi("unconfirmed", record, hashes);
+              return;
+            } else {
+              hashes.swap = record.pendingSwapTx;
+            }
+          }
+          if (!swapReceipt) {
+            var allow = await getCatAllowance(state.address, ROUTER).catch(function () { return null; });
+            if (allow === null || allow < feeWei) {
+              var ap = await sendWalletTx(CAT42, encodeApprove(ROUTER, feeWei), S.feeApproveStep);
+              hashes.approve = ap.hash;
+              record.hashes = hashes; savePendingFee(record);
+              if (!ap.receipt) { finishFeeUi("unconfirmed", record, hashes); return; }
+              if (ap.receipt.status !== "0x1") throw feeErr("approve failed", ap.hash);
+            }
+            var quote = await quoteZapOut(feeWei);
+            if (quote === null || quote <= 0n) throw feeErr("quote unavailable");
+            var minOut = quote * FEE_SLIPPAGE_NUM / FEE_SLIPPAGE_DEN;
+            var zapBefore = await getZapBalance(state.address).catch(function () { return null; });
+            record.zapBeforeSwap = zapBefore !== null ? zapBefore.toString() : null;
+            savePendingFee(record);
+            var deadline = Math.floor(Date.now() / 1000) + FEE_DEADLINE_SECS;
+            var sw = await sendWalletTx(
+              ROUTER,
+              encodeSwapExactTokensForTokens(feeWei, minOut, [CAT42, ZAP], state.address, deadline),
+              S.feeSwapStep
+            );
+            hashes.swap = sw.hash;
+            record.hashes = hashes;
+            if (!sw.receipt) {
+              record.pendingSwapTx = sw.hash; savePendingFee(record);
+              finishFeeUi("unconfirmed", record, hashes);
+              return;
+            }
+            if (sw.receipt.status !== "0x1") { savePendingFee(record); throw feeErr("swap failed", sw.hash); }
+            swapReceipt = sw.receipt;
+            delete record.pendingSwapTx;
+          }
+          /* Measure the ZAP that actually arrived: balance diff first,
+             the swap receipt's Transfer logs as fallback. */
+          var zapReceived = null;
+          var zapAfter = await pollZapBalance();
+          if (record.zapBeforeSwap !== null && record.zapBeforeSwap !== undefined && zapAfter !== null) {
+            var diff = zapAfter - BigInt(record.zapBeforeSwap);
+            if (diff >= 0n) zapReceived = diff;
+          }
+          if (zapReceived === null) zapReceived = zapReceivedFromLogs(swapReceipt, state.address);
+          if (zapReceived === null) {
+            record.stage = "burn"; record.zapWei = null; record.hashes = hashes; savePendingFee(record);
+            finishFeeUi("unconfirmed", record, hashes);
+            return;
+          }
+          record.stage = "burn";
+          record.zapWei = zapReceived.toString();
+          record.hashes = hashes;
+          savePendingFee(record);
+        }
+
+        if (record.stage === "burn") {
+          if (record.burnTx) {
+            /* Never resend a burn — only verify the one already sent. */
+            var okSent = await verifyBurn(record);
+            if (okSent) { clearPendingFee(); finishFeeUi("done", record, hashes); }
+            else finishFeeUi("unconfirmed", record, hashes);
+            return;
+          }
+          if (record.zapWei === null || record.zapWei === undefined) {
+            /* Recover the swapped amount from the swap receipt's logs. */
+            var rec2 = hashes.swap ? await getReceiptViaWallet(hashes.swap) : null;
+            var got = rec2 ? zapReceivedFromLogs(rec2, state.address) : null;
+            if (got === null) { finishFeeUi("unconfirmed", record, hashes); return; }
+            record.zapWei = got.toString(); savePendingFee(record);
+          }
+          var zapWei = BigInt(record.zapWei);
+          var balNow = await pollZapBalance();
+          var sendAmt = zapWei;
+          if (balNow !== null && balNow < sendAmt) sendAmt = balNow;
+          if (sendAmt <= 0n) {
+            clearPendingFee();
+            finishFeeUi("closed", record, hashes);
+            return;
+          }
+          record.zapBalBefore = balNow !== null ? balNow.toString() : null;
+          savePendingFee(record);
+          var bn = await sendWalletTx(ZAP, encodeTransfer(BURN_ADDRESS, sendAmt), S.feeBurnStep);
+          hashes.burn = bn.hash;
+          record.burnTx = bn.hash;
+          record.burnAmountWei = sendAmt.toString();
+          record.hashes = hashes;
+          savePendingFee(record);
+          if (!bn.receipt) { finishFeeUi("unconfirmed", record, hashes); return; }
+          if (bn.receipt.status !== "0x1") {
+            delete record.burnTx; delete record.burnAmountWei; savePendingFee(record);
+            throw feeErr("burn failed", bn.hash);
+          }
+          var okBurn = await verifyBurn(record);
+          if (okBurn) { clearPendingFee(); finishFeeUi("done", record, hashes); }
+          else finishFeeUi("unconfirmed", record, hashes);
+          return;
+        }
+      } catch (e) {
+        setFeeProgress("");
+        if (e && e.code === 4001) finishFeeUi("rejected", record, hashes, e);
+        else finishFeeUi("failed", record, hashes, e);
+      } finally {
+        state.feeRunning = false;
+      }
     }
 
     async function claimAll() {
@@ -628,28 +1076,51 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
           }
         }
         var after = await getCatBalance(state.address);
+        var received = (before !== null && after !== null && after > before) ? (after - before) : null;
+        $("claimProgress").textContent = "";
+        await scanAndRender();
+        await loadStats();
+        /* Render the summary after the rescan (the rescan clears the box). */
         var box = $("claimResult");
         box.innerHTML = "";
         box.className = "result ok";
         var msg = document.createElement("div");
-        if (before !== null && after !== null && after > before) {
-          msg.textContent = t("claimDone", { amount: formatCAT(after - before) });
+        if (received !== null) {
+          msg.textContent = t("claimDone", { amount: formatCAT(received) });
         } else {
           msg.textContent = S.claimDoneNoDiff;
         }
         box.appendChild(msg);
-        hashes.forEach(function (h) {
-          var div = document.createElement("div");
-          var a = document.createElement("a");
-          a.href = EXPLORER + "/tx/" + h;
-          a.target = "_blank"; a.rel = "noreferrer";
-          a.textContent = S.txLink + ": " + h.slice(0, 10) + "…" + h.slice(-6);
-          div.appendChild(a);
-          box.appendChild(div);
-        });
-        $("claimProgress").textContent = "";
-        await scanAndRender();
-        await loadStats();
+        hashes.forEach(function (h) { box.appendChild(txLinkDiv(h)); });
+        /* Site fee phase: 5% of what actually arrived, swapped to ZAP and
+           burned, right here in the same flow. runFeePhase keeps its own
+           errors — a fee problem never re-labels the finished claim. */
+        if (received === null) {
+          var note1 = document.createElement("div");
+          note1.textContent = S.feeNotMeasured;
+          box.appendChild(note1);
+        } else {
+          var feeWei = computeFeeWei(received);
+          if (feeWei <= 0n) {
+            var note2 = document.createElement("div");
+            note2.textContent = S.feeZeroNote;
+            box.appendChild(note2);
+          } else {
+            savePendingFee({
+              address: state.address,
+              receivedWei: received.toString(),
+              feeWei: feeWei.toString(),
+              stage: "swap",
+              zapWei: null,
+              hashes: {},
+              createdAt: Date.now()
+            });
+            state.feeSticky = true;
+            $("feePanel").hidden = false;
+            $("feePanel").scrollIntoView({ block: "nearest" });
+            await runFeePhase();
+          }
+        }
       } catch (e) {
         $("claimProgress").textContent = "";
         var box2 = $("claimResult");
@@ -680,6 +1151,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     $("connectBtn").addEventListener("click", connect);
     $("rescanBtn").addEventListener("click", scanAndRender);
     $("claimBtn").addEventListener("click", claimAll);
+    $("feeResumeBtn").addEventListener("click", function () { runFeePhase(); });
     $("switchChainBtn").addEventListener("click", async function () {
       try {
         await ensureChain();
@@ -694,8 +1166,9 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     if (hasWallet() && window.ethereum.on) {
       window.ethereum.on("accountsChanged", function (accs) {
         if (!accs || !accs.length) {
-          state.address = null; state.scan = null;
+          state.address = null; state.scan = null; state.feeSticky = false;
           $("accountBox").hidden = true; $("connectBox").hidden = false; $("mainPanel").hidden = true;
+          $("feePanel").hidden = true;
           return;
         }
         state.address = accs[0];

@@ -56,6 +56,9 @@ details { margin-top: 14px; }
 summary { cursor: pointer; font-size: 14px; color: var(--muted); padding: 8px 0; }
 .notes { color: var(--text); line-height: 1.8; font-size: 13px; padding-left: 18px; margin: 0; }
 a { color: var(--accent); }
+.fee-box { background: var(--chip); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 14px 0 16px; }
+.fee-title { font-weight: 800; font-size: 14px; }
+.fee-estimate { font-weight: 700; color: var(--text); }
 footer { max-width: 1120px; margin: 0 auto; padding: 16px 20px 32px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 @media (min-width: 1024px) {
   main { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; align-items: start; }

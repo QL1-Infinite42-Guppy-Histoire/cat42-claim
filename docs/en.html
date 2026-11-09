@@ -97,6 +97,12 @@
     <p class="note warn-note" id="mismatchNote" hidden></p>
     <p class="progress" id="scanProgress" role="status"></p>
 
+    <div class="fee-box" id="feeBox">
+      <div class="fee-title" id="feeTitle">About the site fee</div>
+      <p class="note" id="feeNote"></p>
+      <p class="note fee-estimate" id="feeEstimate"></p>
+    </div>
+
     <button type="button" id="claimBtn" class="big-btn claim" disabled>Claim all</button>
     <p class="progress" id="claimProgress" role="status"></p>
     <div id="claimResult" class="result" role="status"></div>
@@ -109,6 +115,17 @@
       <summary id="claimedSummary">Already claimed</summary>
       <div id="claimedList"></div>
     </details>
+  </section>
+
+  <!-- Site fee phase (runs after a claim; resumable) -->
+  <section class="panel" id="feePanel" hidden>
+    <h2 id="feePendingTitle">Site fee not finished yet</h2>
+    <p class="note" id="feePendingText"></p>
+    <div class="row">
+      <button type="button" id="feeResumeBtn" class="small-btn">Finish the fee steps</button>
+    </div>
+    <p class="progress" id="feeProgress" role="status"></p>
+    <div id="feeResult" class="result" role="status"></div>
   </section>
 
   <!-- Safety -->
@@ -127,7 +144,7 @@
   <p id="footerText"></p>
 </footer>
 
-<script src="app.js?v=1"></script>
+<script src="app.js?v=2"></script>
 <script>
 (function(){
   var btn=document.getElementById("themeToggle");
