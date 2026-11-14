@@ -580,6 +580,21 @@ async function rpcBatch(calls, rpcUrls) {
     try {
       var out = await rpcBatchOn(urls[order[j]], calls);
       activeRpc = order[j];
+      /* Guard against silent per-call drops: a batch answer can omit an
+         entry or carry an error for a single call, which the caller would
+         read as "not owned / not claimed". Retry just the missing calls
+         once on the next RPC before accepting a null. A genuine revert
+         (e.g. ownerOf for a burned Guide ID) fails the retry too and its
+         null stands — that is a real answer, not a drop. */
+      var missing = [];
+      out.forEach(function (r, i) { if (r === null) missing.push(i); });
+      if (missing.length && j + 1 < order.length) {
+        try {
+          var retryCalls = missing.map(function (i) { return calls[i]; });
+          var retryOut = await rpcBatchOn(urls[order[j + 1]], retryCalls);
+          retryOut.forEach(function (r, k) { if (r !== null) out[missing[k]] = r; });
+        } catch (e) { /* keep the original nulls */ }
+      }
       return out;
     } catch (e) { lastErr = e; }
   }
@@ -600,7 +615,7 @@ async function getGlobalStats(rpcUrls) {
   return {
     claims: res[0] ? Number(decodeUint(res[0])) : null,
     vaultWei: res[1] ? decodeUint(res[1]).toString() : null,
-    guideIssued: res[2] ? Number(decodeUint(res[2])) - 1 : null
+    guideIssued: res[2] ? Number(decodeUint(res[2])) : null /* IDs are 1..nextId inclusive (see scanOwnedGuides) */
   };
 }
 async function getCatBalance(address, rpcUrls) {
@@ -635,7 +650,12 @@ async function scanOwnedGuides(owner, opts) {
 
   var nextIdHex = await rpcSingle(GUIDE, SEL.nextId, rpcUrls);
   if (!nextIdHex) throw new Error("nextId failed");
-  var total = Number(decodeUint(nextIdHex)) - 1;
+  /* Guide IDs run 1..nextId INCLUSIVE: nextId is the latest issued ID,
+     not one past the end (verified on-chain 2026-11-14 — ownerOf(nextId)
+     resolves to a real owner while nextId still equals that ID, on two
+     independent RPCs). The old "- 1" silently dropped the newest Guide
+     from every scan (bug report 2026-11-14: owner of #5149 saw 735/736). */
+  var total = Number(decodeUint(nextIdHex));
   var balHex = await rpcSingle(GUIDE, callData(SEL.balanceOf, encodeAddress(owner)), rpcUrls);
   var balanceOfCount = balHex ? Number(decodeUint(balHex)) : null;
 
@@ -702,7 +722,7 @@ async function scanOwnedGuides(owner, opts) {
   }
 
   return {
-    nextId: total + 1,
+    nextId: total,
     totalGuides: total,
     balanceOfCount: balanceOfCount,
     ownedIds: owned,
