@@ -56,15 +56,12 @@ details { margin-top: 14px; }
 summary { cursor: pointer; font-size: 14px; color: var(--muted); padding: 8px 0; }
 .notes { color: var(--text); line-height: 1.8; font-size: 13px; padding-left: 18px; margin: 0; }
 a { color: var(--accent); }
-.fee-box { background: var(--chip); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 14px 0 16px; }
-.fee-title { font-weight: 800; font-size: 14px; }
-.fee-estimate { font-weight: 700; color: var(--text); }
 footer { max-width: 1120px; margin: 0 auto; padding: 16px 20px 32px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 @media (min-width: 1024px) {
   main { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; align-items: start; }
   main .panel { margin-top: 20px; }
   /* Every panel gets an explicit column. Panels appear/disappear with
-     wallet + fee-gate state (noWallet / main / fee are hidden-toggled),
+     wallet state (noWallet / main are hidden-toggled),
      so auto-placement must never decide where a panel lands: with
      column-only placement each panel keeps its own column track and
      full-width panels always take a whole row, in every state. */
@@ -72,15 +69,10 @@ footer { max-width: 1120px; margin: 0 auto; padding: 16px 20px 32px; color: var(
   #statsPanel { grid-column: 2; }
   #noWalletPanel { grid-column: 1 / -1; }
   #connectPanel { grid-column: 1; }
-  #faucetPanel { grid-column: 2; }
   #mainPanel { grid-column: 2; }
-  #feePanel { grid-column: 1 / -1; }
   .safety-panel { grid-column: 1 / -1; }
-  /* Inner spacing at desktop width: the fee box sits in the right
-     column, so give it a little more air; the guide rows keep their
+  /* Inner spacing at desktop width: the guide rows keep their
      name/amount split readable in the narrower column. */
-  #mainPanel .fee-box { padding: 16px; margin: 16px 0 18px; }
-  #faucetPanel .info-card { padding: 14px; }
 }
 @media (max-width: 640px) {
   header { padding: 12px 16px 4px; }
