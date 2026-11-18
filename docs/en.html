@@ -6,18 +6,22 @@
 <title>CAT42 Claim — for Guide holders</title>
 <meta name="description" content="Claim CAT42 for your Guide NFTs on 42 Chain. One tap claims everything you have not claimed yet.">
 <script>(function(){try{document.documentElement.dataset.theme=localStorage.getItem("guppy-theme")==="dark"?"dark":"light";}catch(e){document.documentElement.dataset.theme="light";}})();</script>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
 <header>
-  <span class="lang-switch"><label><span id="langLabel">Language / 言語</span> <select id="langSel"><option value="en" selected>English</option><option value="ja">日本語</option></select></label></span><button type="button" id="themeToggle" class="theme-toggle" aria-label="Toggle background theme"></button>
-  <div class="brand">
-    <img id="tokenIcon" src="https://raw.githubusercontent.com/maze369/token-icons/main/icons/0x7386719ebbbeb4d810ff89027bfb8a1cdf696310.jpg" alt="CAT42" width="44" height="44">
-    <span class="brand-emoji" id="tokenFallback" hidden>🐱</span>
-    <div>
-      <h1 id="pageTitle">CAT42 Claim</h1>
-      <p class="sub" id="pageSub">For Guide holders</p>
-    </div>
+  <div class="header-in">
+    <div class="brand">
+        <img id="tokenIcon" src="https://raw.githubusercontent.com/maze369/token-icons/main/icons/0x7386719ebbbeb4d810ff89027bfb8a1cdf696310.jpg" alt="CAT42" width="44" height="44">
+        <span class="brand-emoji" id="tokenFallback" hidden>🐱</span>
+        <div>
+          <h1 id="pageTitle">CAT42 Claim</h1>
+          <p class="sub" id="pageSub">For Guide holders</p>
+        </div>
+      </div>
+    <button type="button" id="headerConnectBtn" class="header-connect">Connect</button>
+    <span class="lang-switch"><label><span id="langLabel">Language / 言語</span> <select id="langSel"><option value="en" selected>English</option><option value="ja">日本語</option></select></label></span>
+    <button type="button" id="themeToggle" class="theme-toggle" aria-label="Toggle background theme"></button>
   </div>
 </header>
 
@@ -136,6 +140,31 @@
   function label(){var d=document.documentElement.dataset.theme==="dark";btn.textContent=d?(ja?"\u2600\uFE0F \u767D\u80CC\u666F":"\u2600\uFE0F Light"):(ja?"\uD83C\uDF19 \u9ED2\u80CC\u666F":"\uD83C\uDF19 Dark");}
   label();
   btn.addEventListener("click",function(){var next=document.documentElement.dataset.theme==="dark"?"light":"dark";document.documentElement.dataset.theme=next;try{localStorage.setItem("guppy-theme",next);}catch(e){}label();});
+})();
+</script>
+
+<script>
+(function(){
+  var hb=document.getElementById("headerConnectBtn");
+  if(!hb)return;
+  var def=hb.textContent;
+  var cb=document.getElementById("connectBtn"),cbox=document.getElementById("connectBox"),abox=document.getElementById("accountBox"),wa=document.getElementById("walletAddr");
+  function short(a){a=(a||"").trim();return a.length>10?a.slice(0,6)+"\u2026"+a.slice(-4):a;}
+  function sync(){
+    var connected=!!(abox&&!abox.hidden&&wa&&wa.textContent.indexOf("0x")===0);
+    if(connected){hb.textContent=short(wa.textContent);hb.classList.add("connected");}
+    else{hb.textContent=def;hb.classList.remove("connected");}
+  }
+  hb.addEventListener("click",function(){
+    if(abox&&!abox.hidden){var p=document.getElementById("connectPanel");if(p)p.scrollIntoView({behavior:"smooth",block:"center"});}
+    else if(cb){cb.click();}
+  });
+  if(window.MutationObserver){
+    var mo=new MutationObserver(sync);
+    [cbox,abox].forEach(function(el){if(el)mo.observe(el,{attributes:true,attributeFilter:["hidden"]});});
+    if(wa)mo.observe(wa,{childList:true,characterData:true,subtree:true});
+  }
+  sync();
 })();
 </script>
 </body>
