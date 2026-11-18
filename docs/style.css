@@ -98,20 +98,44 @@ footer { max-width: 1120px; margin: 0 auto; padding: 20px 20px 36px; color: var(
 
 @media (min-width: 1024px) {
   main { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; align-items: start; }
-  main .panel { margin-top: 20px; }
+  main .panel { margin-top: 22px; padding: 28px; }
+  h1 { font-size: 24px; }
   /* Every panel gets an explicit column. Panels appear/disappear with
      wallet state (noWallet / main are hidden-toggled),
      so auto-placement must never decide where a panel lands: with
      column-only placement each panel keeps its own column track and
-     full-width panels always take a whole row, in every state. */
+     full-width panels always take a whole row, in every state.
+     Desktop layout (2026-11-18 addendum): the two info cards share the
+     top row; the action cards take a full row but stay at a comfortable
+     centered width instead of stretching; lists go multi-column. */
   #howPanel { grid-column: 1; }
   #statsPanel { grid-column: 2; }
   #noWalletPanel { grid-column: 1 / -1; }
-  #connectPanel { grid-column: 1; }
-  #mainPanel { grid-column: 2; }
+  #connectPanel { grid-column: 1 / -1; justify-self: center; width: min(620px, 100%); }
+  #mainPanel { grid-column: 1 / -1; }
   .safety-panel { grid-column: 1 / -1; }
-  /* Inner spacing at desktop width: the guide rows keep their
-     name/amount split readable in the narrower column. */
+  /* Claim card interior: hero total and counts side by side on top,
+     the big claim button full width under them, Guide lists in two
+     columns so long lists stay compact. */
+  #mainPanel { display: flex; flex-wrap: wrap; gap: 0 22px; align-items: flex-start; }
+  #mainPanel .total-box { flex: 1 1 330px; }
+  #mainPanel .counts { flex: 1 1 300px; margin-top: 0; }
+  #mainPanel .warn-note, #mainPanel .progress, #mainPanel .result,
+  #mainPanel > h3, #mainPanel #emptyListText, #mainPanel > details { flex: 1 1 100%; }
+  #claimBtn { flex: 1 1 100%; margin-top: 16px; font-size: 21px; }
+  #unclaimedList, #claimedList { display: grid; grid-template-columns: 1fr 1fr; gap: 0 30px; }
+  #unclaimedList .guide-item:nth-child(-n+2), #claimedList .guide-item:nth-child(-n+2) { border-top: 0; }
+  .total-value { font-size: 44px; }
+  /* Safety notes become three small cards in a row. */
+  .safety-panel .notes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding-left: 0; list-style: none; }
+  .safety-panel .notes li { background: var(--chip); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+}
+@media (min-width: 641px) and (max-width: 1023px) {
+  /* Tablet widths: keep the single column, but cap it at a comfortable
+     reading width and center it, so cards never stretch edge to edge
+     and nothing can break between the phone and desktop layouts. */
+  main, footer, header > .header-in { max-width: 760px; }
+  .panel { padding: 26px; }
 }
 @media (max-width: 640px) {
   header > .header-in { padding: 10px 14px; gap: 6px; }
