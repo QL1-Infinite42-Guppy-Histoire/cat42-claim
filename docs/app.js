@@ -11,7 +11,7 @@ var RPCS = [
   "https://evm-rpc-infinite.mschihuahua.org"
 ];
 var EXPLORER = "https://scan.infinitedrive.xyz";
-var TOKEN_ICON = "https://raw.githubusercontent.com/maze369/token-icons/main/icons/0x7386719ebbbeb4d810ff89027bfb8a1cdf696310.jpg";
+var TOKEN_ICON = "cat42-icon.jpg"; /* self-hosted since the 2026-11-24 audit (was a third-party hotlink) */
 
 var SEL = {
   claim: "0x379607f5",
@@ -86,6 +86,8 @@ var I18N = {
     waitingTx: "Waiting for the network to finish… step {cur} of {total}",
     claimDone: "Done! You received {amount} CAT42.",
     claimDoneNoDiff: "Done! Your claim went through.",
+    claimTimeout: "We could not confirm the result in time. The claim may still go through — please check the record below before trying again.",
+    claimPartial: "Some of your claims went through ({done} of {total} batches). The list has been refreshed — tap again to claim the rest.",
     txLink: "See the record",
     txFailed: "The claim did not go through. No CAT42 was claimed. You can try again.",
     nothingToClaim: "There is nothing to claim right now.",
@@ -145,6 +147,8 @@ var I18N = {
     waitingTx: "ネットワークの完了を待っています… {cur} / {total} 件目",
     claimDone: "できました！ {amount} CAT42 を受け取りました。",
     claimDoneNoDiff: "できました！請求が完了しました。",
+    claimTimeout: "時間内に結果を確認できませんでした。請求は完了している可能性があります — もう一度押す前に、下の記録を確認してください。",
+    claimPartial: "一部の請求が完了しました（{total} 件中 {done} 件）。一覧を更新しました — 残りはもう一度押せば請求できます。",
     txLink: "記録を見る",
     txFailed: "請求できませんでした。CAT42 は請求されていません。もう一度お試しください。",
     nothingToClaim: "いま請求できるものはありません。",
@@ -289,6 +293,10 @@ async function scanOwnedGuides(owner, opts) {
      independent RPCs). The old "- 1" silently dropped the newest Guide
      from every scan (bug report 2026-11-14: owner of #5149 saw 735/736). */
   var total = Number(decodeUint(nextIdHex));
+  /* Sanity bound (audit 2026-11-24): a lying or broken RPC must not be
+     able to make the page scan an unbounded ID range and hang. Real
+     issuance is ~5k; this cap sits ~200x above it. */
+  if (!Number.isFinite(total) || total < 0 || total > 1000000) throw new Error("nextId out of range");
   var balHex = await rpcSingle(GUIDE, callData(SEL.balanceOf, encodeAddress(owner)), rpcUrls);
   var balanceOfCount = balHex ? Number(decodeUint(balHex)) : null;
 
@@ -329,7 +337,13 @@ async function scanOwnedGuides(owner, opts) {
       return { to: CAT42, data: callData(SEL.claimed, encodeUint(id)) };
     }), rpcUrls);
     cres.forEach(function (r, idx) {
-      var v = r ? decodeUint(r) : null;
+      /* Fail closed (audit 2026-11-24): rpcBatch already retried a
+         dropped read once on the second RPC, so a still-null claimed()
+         result is unknown — never guess it as "unclaimed" (that could
+         list an already-claimed Guide as claimable). Fail the scan and
+         let the user rescan instead. */
+      if (r === null) throw new Error("claimed read failed");
+      var v = decodeUint(r);
       if (v && v !== 0n) claimedIds.push(ch[idx]); else unclaimedIds.push(ch[idx]);
     });
   }
@@ -345,7 +359,11 @@ async function scanOwnedGuides(owner, opts) {
     uch.forEach(function (id) { calls2.push({ to: GUIDE, data: callData(SEL.tier, encodeUint(id)) }); });
     var res2 = await rpcBatch(calls2, rpcUrls);
     uch.forEach(function (id, idx) {
-      var pv = res2[idx] ? decodeUint(res2[idx]) : 0n;
+      /* Fail closed, same as claimed() above: a still-null preview()
+         after the retry is unknown, not zero — fail the scan rather
+         than show a made-up amount. */
+      if (res2[idx] === null || res2[idx] === undefined) throw new Error("preview read failed");
+      var pv = decodeUint(res2[idx]);
       if (pv === null) pv = 0n;
       var tr = res2[uch.length + idx] ? decodeUint(res2[uch.length + idx]) : null;
       var tierNum = tr === null ? -1 : Number(tr);
@@ -630,9 +648,21 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
 
     /* One tap claims every unclaimed Guide via claimMany (chunks of
        100 IDs, each chunk confirmed in the wallet). The only cost is
-       the chain's gas in [42] — the site itself is free. */
+       the chain's gas in [42] — the site itself is free.
+       Audit hardening (2026-11-24):
+       - the address is snapshotted at the start, so an account switch
+         mid-claim cannot reroute later chunks to another account;
+       - the chain is VERIFIED (not just requested) before the first
+         send and re-checked before every chunk: on any other chain the
+         CAT42 address is an empty account, so the send would "succeed"
+         as a no-op and the old code could report a false success;
+       - a receipt that does not arrive in time is reported as
+         "unconfirmed", not as a failure — the tx may still land;
+       - if some chunks already went through, the result says so and
+         the list is rescanned, instead of claiming nothing happened. */
     async function claimAll() {
       if (state.claiming || !state.scan) return;
+      var addr = state.address;
       var ids = state.scan.unclaimed.map(function (u) { return u.id; });
       if (ids.length === 0) {
         setResult($("claimResult"), S.nothingToClaim, "error");
@@ -643,32 +673,47 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
       setResult($("claimResult"), "");
       var chunks = chunkArray(ids, 100);
       var hashes = [];
+      async function chainIs42() {
+        try {
+          var cur = await window.ethereum.request({ method: "eth_chainId" });
+          return !!(cur && cur.toLowerCase() === CHAIN_ID_HEX);
+        } catch (e) { return false; }
+      }
       try {
-        var before = await getCatBalance(state.address);
-        try { await ensureChain(); } catch (e) { /* wallet will surface it on send */ }
+        var before = await getCatBalance(addr);
+        try { await ensureChain(); } catch (e) { /* verified just below */ }
+        if (!(await chainIs42())) {
+          throw Object.assign(new Error("wrong chain"), { kind: "chain" });
+        }
         for (var ci = 0; ci < chunks.length; ci++) {
+          if (!(await chainIs42())) {
+            throw Object.assign(new Error("wrong chain"), { kind: "chain" });
+          }
           $("claimProgress").textContent = t("claimingStep", { cur: ci + 1, total: chunks.length });
           var data = encodeClaimMany(chunks[ci]);
           var gasHex = null;
           try {
             var est = await window.ethereum.request({
               method: "eth_estimateGas",
-              params: [{ from: state.address, to: CAT42, data: data }]
+              params: [{ from: addr, to: CAT42, data: data }]
             });
             var gas = BigInt(est) * 120n / 100n;
             gasHex = "0x" + gas.toString(16);
           } catch (e) { gasHex = null; /* let the wallet estimate */ }
-          var txParams = { from: state.address, to: CAT42, data: data };
+          var txParams = { from: addr, to: CAT42, data: data };
           if (gasHex) txParams.gas = gasHex;
           var hash = await window.ethereum.request({ method: "eth_sendTransaction", params: [txParams] });
           hashes.push(hash);
           $("claimProgress").textContent = t("waitingTx", { cur: ci + 1, total: chunks.length });
           var receipt = await waitReceipt(hash);
-          if (!receipt || receipt.status !== "0x1") {
+          if (!receipt) {
+            throw Object.assign(new Error("receipt timeout"), { kind: "timeout", hash: hash });
+          }
+          if (receipt.status !== "0x1") {
             throw Object.assign(new Error("tx failed"), { hash: hash });
           }
         }
-        var after = await getCatBalance(state.address);
+        var after = await getCatBalance(addr);
         var received = (before !== null && after !== null && after > before) ? (after - before) : null;
         $("claimProgress").textContent = "";
         await scanAndRender();
@@ -687,14 +732,31 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
         hashes.forEach(function (h) { box.appendChild(txLinkDiv(h)); });
       } catch (e) {
         $("claimProgress").textContent = "";
+        var partial = hashes.length > 0;
+        if (partial) { try { await scanAndRender(); } catch (e2) {} }
         var box2 = $("claimResult");
         box2.innerHTML = "";
-        box2.className = "result error";
         var m = document.createElement("div");
-        if (e && e.code === 4001) m.textContent = S.rejected;
-        else m.textContent = S.txFailed;
+        if (partial) {
+          box2.className = "result ok";
+          m.textContent = t("claimPartial", { done: hashes.length, total: chunks.length });
+        } else if (e && e.kind === "chain") {
+          box2.className = "result error";
+          m.textContent = S.wrongChain;
+          var sw2 = $("switchChainBtn"); if (sw2) sw2.hidden = false;
+        } else if (e && e.kind === "timeout") {
+          box2.className = "result error";
+          m.textContent = S.claimTimeout;
+        } else if (e && e.code === 4001) {
+          box2.className = "result error";
+          m.textContent = S.rejected;
+        } else {
+          box2.className = "result error";
+          m.textContent = S.txFailed;
+        }
         box2.appendChild(m);
         if (e && e.hash) box2.appendChild(txLinkDiv(e.hash));
+        else hashes.forEach(function (h) { box2.appendChild(txLinkDiv(h)); });
         if (state.scan && state.scan.unclaimed.length > 0) $("claimBtn").disabled = false;
       } finally {
         state.claiming = false;

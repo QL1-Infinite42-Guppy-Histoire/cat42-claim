@@ -3,7 +3,8 @@
    Run: node tools/verify.js
    The site fee (prepaid ZAP burn) and the in-page ZAP faucet were abolished
    on 2026-11-14; this harness asserts they are GONE, and keeps the live
-   read-only scan checks (no transaction is ever sent). */
+   read-only scan checks (no transaction is ever sent).
+   Section 9 asserts the 2026-11-24 audit hardening stays in place. */
 const fs = require("fs");
 const path = require("path");
 const app = require("../docs/app.js");
@@ -124,7 +125,7 @@ function idsOf(html) {
     }
     check(`${name} has #claimBtn`, html.includes('id="claimBtn"'));
     check(`${name} has #mainPanel`, html.includes('id="mainPanel"'));
-    check(`${name} loads app.js?v=4`, html.includes("app.js?v=4"));
+    check(`${name} loads app.js?v=5`, html.includes("app.js?v=5"));
     check(`${name} mentions no faucet/fee markup`, !/faucet|feePanel|feeBox/.test(html));
   }
   const enIds = [...idsOf(enHtml)].sort();
@@ -133,6 +134,60 @@ function idsOf(html) {
   const jsIds = new Set([...appJs.matchAll(/\$\("([A-Za-z]+)"\)/g)].map(m => m[1]));
   const missing = [...jsIds].filter(id => !idsOf(enHtml).has(id));
   check("every id app.js uses exists in the shells", missing.length === 0, missing.join(","));
+
+  // 9) audit hardening (2026-11-24) regression checks
+  check("claim verifies the chain before sending (kind chain)", appJs.includes('kind: "chain"') && appJs.includes("chainIs42"));
+  check("receipt timeout is a distinct outcome (kind timeout)", appJs.includes('kind: "timeout"'));
+  check("claimTimeout copy exists (en/ja)", typeof app.I18N.en.claimTimeout === "string" && typeof app.I18N.ja.claimTimeout === "string");
+  check("claimPartial copy exists (en/ja)", typeof app.I18N.en.claimPartial === "string" && typeof app.I18N.ja.claimPartial === "string");
+  check("scan fails closed on a dropped claimed() read", appJs.includes("claimed read failed"));
+  check("scan fails closed on a dropped preview() read", appJs.includes("preview read failed"));
+  check("scan nextId sanity cap present", appJs.includes("nextId out of range"));
+  check("claim snapshots the address (var addr)", appJs.includes("var addr = state.address"));
+  for (const [name, html] of [["en.html", enHtml], ["ja.html", jaHtml]]) {
+    check(`${name} token icon is self-hosted`, html.includes('src="cat42-icon.jpg"') && !html.includes("raw.githubusercontent.com"));
+  }
+
+  // 10) fail-closed scan behaviour, unit-tested against a stubbed RPC
+  {
+    const W = (v) => "0x" + BigInt(v).toString(16).padStart(64, "0");
+    const AW = (a) => "0x" + "0".repeat(24) + a.slice(2).toLowerCase();
+    const OWNER = "0x1111111111111111111111111111111111111111";
+    const OTHER = "0x2222222222222222222222222222222222222222";
+    const realFetch = global.fetch;
+    const stub = (mode) => async (url, opts) => {
+      const payload = JSON.parse(opts.body);
+      const out = payload.map((c) => {
+        const d = c.params[0].data;
+        const sel = d.slice(0, 10);
+        const arg = d.length >= 74 ? BigInt("0x" + d.slice(10, 74)) : 0n;
+        let result = null;
+        if (sel === app.SEL.nextId) result = mode === "huge" ? W(2000000n) : W(3n);
+        else if (sel === app.SEL.balanceOf) result = W(1n);
+        else if (sel === app.SEL.ownerOf) result = AW(arg === 2n ? OWNER : OTHER);
+        else if (sel === app.SEL.claimed) { if (mode === "dropClaimed") return { jsonrpc: "2.0", id: c.id, error: { code: -32000, message: "stub drop" } }; result = W(0n); }
+        else if (sel === app.SEL.preview) { if (mode === "dropPreview") return { jsonrpc: "2.0", id: c.id, error: { code: -32000, message: "stub drop" } }; result = W(1000n); }
+        else if (sel === "0x6dda34db") result = W(0n); // tier()
+        return { jsonrpc: "2.0", id: c.id, result };
+      });
+      return { ok: true, json: async () => out };
+    };
+    const expectThrow = async (mode, needle) => {
+      global.fetch = stub(mode);
+      try { await app.scanOwnedGuides(OWNER, {}); return false; }
+      catch (e) { return String(e && e.message).includes(needle); }
+      finally { global.fetch = realFetch; }
+    };
+    check("stubbed scan: dropped claimed() read fails the scan", await expectThrow("dropClaimed", "claimed read failed"));
+    check("stubbed scan: dropped preview() read fails the scan", await expectThrow("dropPreview", "preview read failed"));
+    check("stubbed scan: absurd nextId is rejected", await expectThrow("huge", "nextId out of range"));
+    global.fetch = stub("ok");
+    try {
+      const sOk = await app.scanOwnedGuides(OWNER, {});
+      check("stubbed scan: healthy reads still scan fine", sOk.ownedIds.length === 1 && sOk.unclaimed.length === 1 && sOk.unclaimed[0].id === 2, JSON.stringify(sOk.ownedIds));
+    } catch (e) { check("stubbed scan: healthy reads still scan fine", false, String(e && e.message)); }
+    finally { global.fetch = realFetch; }
+  }
 
   console.log(failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);
