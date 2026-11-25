@@ -628,7 +628,14 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     }
 
     async function connect() {
+      /* Detection happens HERE, at click time, never at page load:
+         wallet in-app browsers often inject window.ethereum late, so
+         the connect button is always shown and the provider is
+         re-read fresh on every click. The guidance panel appears only
+         when a click truly finds no wallet, and the button stays. */
       if (!hasWallet()) { $("noWalletPanel").hidden = false; return; }
+      $("noWalletPanel").hidden = true;
+      wireProviderEvents();
       try {
         var accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
         if (!accounts || !accounts.length) return;
@@ -813,9 +820,31 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     }
     window.__cat42OpenConnDialog = openConnDialog;
 
+    /* Provider events, wired lazily: at load when a wallet is already
+       injected, or from connect() when a late-injected wallet is first
+       found — exactly once per provider object. */
+    var wiredProvider = null;
+    function wireProviderEvents() {
+      if (!hasWallet() || !window.ethereum.on || wiredProvider === window.ethereum) return;
+      wiredProvider = window.ethereum;
+      window.ethereum.on("accountsChanged", function (accs) {
+        if (!accs || !accs.length) {
+          closeConnDialog();
+          resetWalletUI();
+          return;
+        }
+        state.address = accs[0];
+        $("walletAddr").textContent = state.address;
+        scanAndRender();
+      });
+      window.ethereum.on("chainChanged", function () {
+        if (state.address) scanAndRender();
+      });
+    }
+
     /* wire up */
     applyI18n();
-    if (!hasWallet()) $("noWalletPanel").hidden = false;
+    wireProviderEvents();
     $("connectBtn").addEventListener("click", connect);
     $("disconnectBtn").addEventListener("click", disconnectWallet);
     $("disconnectOpenBtn").addEventListener("click", openConnDialog);
@@ -833,21 +862,6 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
         else setResult($("connectResult"), S.wrongChain, "error");
       }
     });
-    if (hasWallet() && window.ethereum.on) {
-      window.ethereum.on("accountsChanged", function (accs) {
-        if (!accs || !accs.length) {
-          closeConnDialog();
-          resetWalletUI();
-          return;
-        }
-        state.address = accs[0];
-        $("walletAddr").textContent = state.address;
-        scanAndRender();
-      });
-      window.ethereum.on("chainChanged", function () {
-        if (state.address) scanAndRender();
-      });
-    }
     loadStats();
   })();
 }

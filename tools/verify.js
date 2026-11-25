@@ -125,7 +125,7 @@ function idsOf(html) {
     }
     check(`${name} has #claimBtn`, html.includes('id="claimBtn"'));
     check(`${name} has #mainPanel`, html.includes('id="mainPanel"'));
-    check(`${name} loads app.js?v=6`, html.includes("app.js?v=6"));
+    check(`${name} loads app.js?v=7`, html.includes("app.js?v=7"));
     check(`${name} loads style.css?v=6`, html.includes("style.css?v=6"));
     check(`${name} mentions no faucet/fee markup`, !/faucet|feePanel|feeBox/.test(html));
   }
@@ -232,6 +232,19 @@ function idsOf(html) {
   for (const [name, text] of [["ja.html", jaHtml], ["index.html", indexHtml], ["app.js (raw)", appSrc]]) {
     check(`${name} uses jōyō kanji only`, nonJoyoIn(text).length === 0, nonJoyoIn(text).join(""));
   }
+
+  // 14) Connect button is ALWAYS shown (2026-11-25): wallet detection
+  // happens at click time, never at load — wallet in-app browsers often
+  // inject window.ethereum late. The guidance panel may appear only
+  // after a click finds no wallet, and must hide again once one is found.
+  // (End-to-end behaviour: tools/test-late-inject.js, jsdom.)
+  check("page load never pre-shows the no-wallet guidance", !/applyI18n\(\);\s*if \(!hasWallet\(\)\)/.test(appSrc));
+  check("connect() shows the guidance only when a click finds no wallet",
+    appSrc.includes('if (!hasWallet()) { $("noWalletPanel").hidden = false; return; }'));
+  check("connect() hides the guidance again once a wallet is found",
+    appSrc.includes('$("noWalletPanel").hidden = true;'));
+  check("provider events wire lazily (late-injected wallets included)",
+    appSrc.includes("function wireProviderEvents()") && appSrc.includes("wiredProvider === window.ethereum"));
 
   console.log(failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);
