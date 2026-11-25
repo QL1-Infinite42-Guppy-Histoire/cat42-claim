@@ -125,7 +125,7 @@ function idsOf(html) {
     }
     check(`${name} has #claimBtn`, html.includes('id="claimBtn"'));
     check(`${name} has #mainPanel`, html.includes('id="mainPanel"'));
-    check(`${name} loads app.js?v=8`, html.includes("app.js?v=8"));
+    check(`${name} loads app.js?v=9`, html.includes("app.js?v=9"));
     check(`${name} loads style.css?v=6`, html.includes("style.css?v=6"));
     check(`${name} mentions no faucet/fee markup`, !/faucet|feePanel|feeBox/.test(html));
   }
@@ -261,6 +261,60 @@ function idsOf(html) {
   check("receipt polling tolerates transient read errors", appJs.includes("transient read error: keep polling"));
   check("scans are sequence-guarded", appJs.includes("var seq = ++state.scanSeq;") && appJs.includes("if (seq !== state.scanSeq) return;"));
   check("wallet-side account switch cannot silently connect", appJs.includes("if (!state.address) return;"));
+
+  // 16) RPC cross-validation (2026-11-25): both public RPCs are read
+  // at the same pinned block and must agree — live agreement, plus
+  // stubbed disagreement / divergence detection.
+  check("crossCheck + crossCheckOwned are exported", typeof app.crossCheck === "function" && typeof app.crossCheckOwned === "function");
+  check("rpcDisagree/rpcLagging copy exists (en/ja)",
+    typeof app.I18N.en.rpcDisagree === "string" && typeof app.I18N.ja.rpcDisagree === "string" &&
+    typeof app.I18N.en.rpcLagging === "string" && typeof app.I18N.ja.rpcLagging === "string");
+  check("claim is blocked while cross-validation disagrees", appJs.includes("state.crossBlocked"));
+  {
+    const cxLive = await app.crossCheck(null);
+    check("live crossCheck: both RPCs answer (mode both)", cxLive.mode === "both", cxLive.mode);
+    check("live crossCheck: anchor values agree", cxLive.agree === true);
+    check("live crossCheck: stats are sane", !!cxLive.stats && cxLive.stats.claims > 4000 && cxLive.stats.guideIssued > 5000,
+      cxLive.stats ? `claims=${cxLive.stats.claims} issued=${cxLive.stats.guideIssued}` : "no stats");
+    const cxA1 = await app.crossCheck(A1);
+    check("live crossCheck(owner): agrees", cxA1.mode === "both" && cxA1.agree === true);
+    const scA1 = await app.scanOwnedGuides(A1, { blockTag: cxA1.block });
+    check("live crossCheck(owner): guide balance matches the pinned scan",
+      cxA1.guideBalance === scA1.balanceOfCount, `cross=${cxA1.guideBalance} scan=${scA1.balanceOfCount}`);
+    const ownedOk = await app.crossCheckOwned(A1, scA1.ownedIds, scA1.unclaimed.map((u) => u.id), cxA1.block);
+    check("live crossCheckOwned: the actionable set verifies on both RPCs", ownedOk === true);
+  }
+  {
+    const W = (v) => "0x" + BigInt(v).toString(16).padStart(64, "0");
+    const realFetch = global.fetch;
+    const stubCross = (badUrl, badBlocks) => async (url, opts) => {
+      const payload = JSON.parse(opts.body);
+      if (!Array.isArray(payload)) {
+        const bn = badBlocks && url === app.RPCS[1] ? "0x10" : "0x1000";
+        return { ok: true, json: async () => ({ jsonrpc: "2.0", id: payload.id, result: bn }) };
+      }
+      const out = payload.map((c) => {
+        const sel = c.params[0].data.slice(0, 10);
+        let result = W(0n);
+        if (sel === app.SEL.claims) result = W(4000n);
+        else if (sel === app.SEL.balanceOf) result = W(1000000000000000000n);
+        else if (sel === app.SEL.nextId) result = url === badUrl ? W(9999n) : W(5000n);
+        return { jsonrpc: "2.0", id: c.id, result };
+      });
+      return { ok: true, json: async () => out };
+    };
+    global.fetch = stubCross(app.RPCS[1], false);
+    try {
+      const cxBad = await app.crossCheck(null);
+      check("stubbed crossCheck: a lying second RPC is detected", cxBad.mode === "both" && cxBad.agree === false, JSON.stringify(cxBad.agree));
+    } finally { global.fetch = realFetch; }
+    global.fetch = stubCross(null, true);
+    try {
+      const cxDiv = await app.crossCheck(null);
+      check("stubbed crossCheck: a far-behind RPC degrades to single mode with a warning path",
+        cxDiv.mode === "single" && cxDiv.diverged === true && cxDiv.aheadUrl === app.RPCS[0], JSON.stringify(cxDiv.mode) + "/" + String(cxDiv.diverged));
+    } finally { global.fetch = realFetch; }
+  }
 
   console.log(failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);

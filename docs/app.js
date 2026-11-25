@@ -45,6 +45,8 @@ var I18N = {
     statGuidesLabel: "Guides issued",
     statsNote: "These numbers are read live from the chain, so they are always up to date.",
     statsError: "Could not load the latest numbers. Please reload the page in a little while.",
+    rpcDisagree: "The two public nodes returned different data, so nothing is shown or claimed from it, for safety. Please wait a moment and try again.",
+    rpcLagging: "One public node is far behind, so right now the numbers come from a single node.",
     noWalletTitle: "You need a wallet app",
     noWalletText: "No wallet was found in this browser. Please install a wallet app such as MetaMask, then open this page inside that app's browser. Never share your recovery phrase or private key with anyone — this site will never ask for it.",
     connectBtn: "Connect wallet",
@@ -110,6 +112,8 @@ var I18N = {
     statGuidesLabel: "発行されたガイド",
     statsNote: "この数字はチェーンから直接読んでいるので、いつも最新の状態です。",
     statsError: "最新の数字を読み込めませんでした。少し待ってからページを開き直してください。",
+    rpcDisagree: "2つの公開ノードで違うデータが返ってきたため、安全のため表示も請求も止めています。少し待ってから、もう一度お試しください。",
+    rpcLagging: "片方の公開ノードが大きく遅れているため、いまは1つのノードの数字で表示しています。",
     noWalletTitle: "ウォレットアプリが必要です",
     noWalletText: "このブラウザではウォレットが見つかりませんでした。MetaMask などのウォレットアプリを入れて、そのアプリの中のブラウザでこのページを開いてください。復旧フレーズや秘密鍵は絶対に誰にも教えないでください — このサイトが聞くことはありません。",
     connectBtn: "ウォレットをつなぐ",
@@ -214,9 +218,9 @@ function fetchFn() {
   if (typeof fetch !== "undefined") return fetch;
   throw new Error("fetch unavailable");
 }
-async function rpcBatchOn(rpcUrl, calls) {
+async function rpcBatchOn(rpcUrl, calls, blockTag) {
   var payload = calls.map(function (c, i) {
-    return { jsonrpc: "2.0", id: i + 1, method: "eth_call", params: [{ to: c.to, data: c.data }, "latest"] };
+    return { jsonrpc: "2.0", id: i + 1, method: "eth_call", params: [{ to: c.to, data: c.data }, blockTag || "latest"] };
   });
   var res = await fetchFn()(rpcUrl, {
     method: "POST",
@@ -234,14 +238,14 @@ async function rpcBatchOn(rpcUrl, calls) {
     return r.result;
   });
 }
-async function rpcBatch(calls, rpcUrls) {
+async function rpcBatch(calls, rpcUrls, blockTag) {
   var urls = rpcUrls || RPCS;
   var order = [];
   for (var k = 0; k < urls.length; k++) order.push((activeRpc + k) % urls.length);
   var lastErr = null;
   for (var j = 0; j < order.length; j++) {
     try {
-      var out = await rpcBatchOn(urls[order[j]], calls);
+      var out = await rpcBatchOn(urls[order[j]], calls, blockTag);
       activeRpc = order[j];
       /* Guard against silent per-call drops: a batch answer can omit an
          entry or carry an error for a single call, which the caller would
@@ -254,7 +258,7 @@ async function rpcBatch(calls, rpcUrls) {
       if (missing.length && j + 1 < order.length) {
         try {
           var retryCalls = missing.map(function (i) { return calls[i]; });
-          var retryOut = await rpcBatchOn(urls[order[j + 1]], retryCalls);
+          var retryOut = await rpcBatchOn(urls[order[j + 1]], retryCalls, blockTag);
           retryOut.forEach(function (r, k) { if (r !== null) out[missing[k]] = r; });
         } catch (e) { /* keep the original nulls */ }
       }
@@ -263,26 +267,26 @@ async function rpcBatch(calls, rpcUrls) {
   }
   throw lastErr || new Error("RPC failed");
 }
-async function rpcSingle(to, data, rpcUrls) {
-  var out = await rpcBatch([{ to: to, data: data }], rpcUrls);
+async function rpcSingle(to, data, rpcUrls, blockTag) {
+  var out = await rpcBatch([{ to: to, data: data }], rpcUrls, blockTag);
   return out[0];
 }
 
 /* ---------- chain reads ---------- */
-async function getGlobalStats(rpcUrls) {
+async function getGlobalStats(rpcUrls, blockTag) {
   var res = await rpcBatch([
     { to: CAT42, data: SEL.claims },
     { to: CAT42, data: callData(SEL.balanceOf, encodeAddress(CAT42)) },
     { to: GUIDE, data: SEL.nextId }
-  ], rpcUrls);
+  ], rpcUrls, blockTag);
   return {
     claims: res[0] ? Number(decodeUint(res[0])) : null,
     vaultWei: res[1] ? decodeUint(res[1]).toString() : null,
     guideIssued: res[2] ? Number(decodeUint(res[2])) : null /* IDs are 1..nextId inclusive (see scanOwnedGuides) */
   };
 }
-async function getCatBalance(address, rpcUrls) {
-  var r = await rpcSingle(CAT42, callData(SEL.balanceOf, encodeAddress(address)), rpcUrls);
+async function getCatBalance(address, rpcUrls, blockTag) {
+  var r = await rpcSingle(CAT42, callData(SEL.balanceOf, encodeAddress(address)), rpcUrls, blockTag);
   return r ? decodeUint(r) : null;
 }
 /* Scan: find every Guide owned by `owner`, then claim state.
@@ -290,10 +294,11 @@ async function getCatBalance(address, rpcUrls) {
 async function scanOwnedGuides(owner, opts) {
   opts = opts || {};
   var rpcUrls = opts.rpcUrls || RPCS;
+  var blockTag = opts.blockTag || "latest";
   var onProgress = opts.onProgress || function () {};
   var ownerLc = owner.toLowerCase();
 
-  var nextIdHex = await rpcSingle(GUIDE, SEL.nextId, rpcUrls);
+  var nextIdHex = await rpcSingle(GUIDE, SEL.nextId, rpcUrls, blockTag);
   if (!nextIdHex) throw new Error("nextId failed");
   /* Guide IDs run 1..nextId INCLUSIVE: nextId is the latest issued ID,
      not one past the end (verified on-chain 2026-11-14 — ownerOf(nextId)
@@ -305,7 +310,7 @@ async function scanOwnedGuides(owner, opts) {
      able to make the page scan an unbounded ID range and hang. Real
      issuance is ~5k; this cap sits ~200x above it. */
   if (!Number.isFinite(total) || total < 0 || total > 1000000) throw new Error("nextId out of range");
-  var balHex = await rpcSingle(GUIDE, callData(SEL.balanceOf, encodeAddress(owner)), rpcUrls);
+  var balHex = await rpcSingle(GUIDE, callData(SEL.balanceOf, encodeAddress(owner)), rpcUrls, blockTag);
   var balanceOfCount = balHex ? Number(decodeUint(balHex)) : null;
 
   var ids = [];
@@ -321,7 +326,7 @@ async function scanOwnedGuides(owner, opts) {
       var calls = batch.map(function (id) {
         return { to: GUIDE, data: callData(SEL.ownerOf, encodeUint(id)) };
       });
-      var results = await rpcBatch(calls, rpcUrls);
+      var results = await rpcBatch(calls, rpcUrls, blockTag);
       results.forEach(function (r, idx) {
         var a = decodeAddress(r);
         if (a && a === ownerLc) owned.push(batch[idx]);
@@ -343,7 +348,7 @@ async function scanOwnedGuides(owner, opts) {
     var ch = ownedChunks[c];
     var cres = await rpcBatch(ch.map(function (id) {
       return { to: CAT42, data: callData(SEL.claimed, encodeUint(id)) };
-    }), rpcUrls);
+    }), rpcUrls, blockTag);
     cres.forEach(function (r, idx) {
       /* Fail closed (audit 2026-11-24): rpcBatch already retried a
          dropped read once on the second RPC, so a still-null claimed()
@@ -365,7 +370,7 @@ async function scanOwnedGuides(owner, opts) {
     var calls2 = [];
     uch.forEach(function (id) { calls2.push({ to: CAT42, data: callData(SEL.preview, encodeUint(id)) }); });
     uch.forEach(function (id) { calls2.push({ to: GUIDE, data: callData(SEL.tier, encodeUint(id)) }); });
-    var res2 = await rpcBatch(calls2, rpcUrls);
+    var res2 = await rpcBatch(calls2, rpcUrls, blockTag);
     uch.forEach(function (id, idx) {
       /* Fail closed, same as claimed() above: a still-null preview()
          after the retry is unknown, not zero — fail the scan rather
@@ -392,11 +397,126 @@ async function scanOwnedGuides(owner, opts) {
   };
 }
 
+/* ---------- cross-validation between the two public RPCs ----------
+   Until 2026-11-25 the two community RPCs were fallback-only: if the
+   answering node was broken or lying, its data was displayed as-is
+   (the 2026-11-14 incident class). Now the values the user acts on
+   are read on BOTH RPCs at the SAME pinned block and compared:
+   - block heights within LAG_LIMIT of each other -> pin to the lower
+     block and require exact agreement on the anchors (global stats,
+     the user's Guide count and CAT42 balance) and, after the scan,
+     on the full actionable set (ownerOf / claimed / preview for the
+     user's own Guides). Disagreement fails closed: stats are hidden
+     and the scan/claim does not proceed on unverified data.
+   - heights further apart -> one node is stuck; fall back to the
+     ahead node alone (single mode) and say so on screen.
+   - one node unreachable -> single mode, as before. */
+var LAG_LIMIT = 50;
+async function rpcBlockNumber(rpcUrl) {
+  var res = await fetchFn()(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] })
+  });
+  if (!res.ok) throw new Error("RPC HTTP " + res.status);
+  var json = await res.json();
+  if (!json || typeof json.result !== "string") throw new Error("RPC bad blockNumber");
+  return Number(BigInt(json.result));
+}
+async function readAnchors(rpcUrl, owner, blockTag) {
+  var calls = [
+    { to: CAT42, data: SEL.claims },
+    { to: CAT42, data: callData(SEL.balanceOf, encodeAddress(CAT42)) },
+    { to: GUIDE, data: SEL.nextId }
+  ];
+  if (owner) {
+    calls.push({ to: GUIDE, data: callData(SEL.balanceOf, encodeAddress(owner)) });
+    calls.push({ to: CAT42, data: callData(SEL.balanceOf, encodeAddress(owner)) });
+  }
+  var res = await rpcBatchOn(rpcUrl, calls, blockTag);
+  if (res.some(function (r) { return r === null; })) throw new Error("anchor read incomplete");
+  var out = {
+    claims: Number(decodeUint(res[0])),
+    vaultWei: decodeUint(res[1]).toString(),
+    guideIssued: Number(decodeUint(res[2])),
+    guideBalance: null,
+    catBalanceWei: null
+  };
+  if (owner) {
+    out.guideBalance = Number(decodeUint(res[3]));
+    out.catBalanceWei = decodeUint(res[4]).toString();
+  }
+  return out;
+}
+async function crossCheck(owner, rpcUrls) {
+  var urls = rpcUrls || RPCS;
+  if (urls.length < 2) return { mode: "single", block: "latest" };
+  var blocks = [];
+  for (var i = 0; i < 2; i++) {
+    try { blocks.push(await rpcBlockNumber(urls[i])); }
+    catch (e) { return { mode: "single", block: "latest" }; }
+  }
+  if (Math.abs(blocks[0] - blocks[1]) > LAG_LIMIT) {
+    return { mode: "single", block: "latest", diverged: true, aheadUrl: blocks[0] > blocks[1] ? urls[0] : urls[1] };
+  }
+  var pin = "0x" + Math.min(blocks[0], blocks[1]).toString(16);
+  try {
+    var a = await readAnchors(urls[0], owner, pin);
+    var b = await readAnchors(urls[1], owner, pin);
+    var agree = a.claims === b.claims && a.vaultWei === b.vaultWei && a.guideIssued === b.guideIssued &&
+      a.guideBalance === b.guideBalance && a.catBalanceWei === b.catBalanceWei;
+    return {
+      mode: "both", block: pin, agree: agree,
+      stats: { claims: a.claims, vaultWei: a.vaultWei, guideIssued: a.guideIssued },
+      guideBalance: a.guideBalance, catBalanceWei: a.catBalanceWei
+    };
+  } catch (e) {
+    return { mode: "single", block: "latest" };
+  }
+}
+/* Re-read the actionable set (the user's own Guides) on EACH RPC at
+   the pinned block and require: every owned ID is owned by the user
+   on both, and claimed()/preview() agree exactly between the two. */
+async function crossCheckOwned(owner, ownedIds, unclaimedIds, blockTag, rpcUrls) {
+  var urls = rpcUrls || RPCS;
+  var ownerLc = owner.toLowerCase();
+  try {
+    var perRpc = [];
+    for (var u = 0; u < urls.length; u++) {
+      var calls = [];
+      ownedIds.forEach(function (id) { calls.push({ to: GUIDE, data: callData(SEL.ownerOf, encodeUint(id)) }); });
+      unclaimedIds.forEach(function (id) { calls.push({ to: CAT42, data: callData(SEL.claimed, encodeUint(id)) }); });
+      unclaimedIds.forEach(function (id) { calls.push({ to: CAT42, data: callData(SEL.preview, encodeUint(id)) }); });
+      var flat = [];
+      var chunks = chunkArray(calls, 300);
+      for (var c = 0; c < chunks.length; c++) {
+        var part = await rpcBatchOn(urls[u], chunks[c], blockTag);
+        flat = flat.concat(part);
+      }
+      if (flat.some(function (r) { return r === null; })) return false;
+      perRpc.push(flat);
+    }
+    var n = ownedIds.length, m = unclaimedIds.length;
+    for (var k = 0; k < n; k++) {
+      if (decodeAddress(perRpc[0][k]) !== ownerLc || decodeAddress(perRpc[1][k]) !== ownerLc) return false;
+    }
+    for (var j = 0; j < m; j++) {
+      if (perRpc[0][n + j] !== perRpc[1][n + j]) return false;               /* claimed */
+      if (perRpc[0][n + m + j] !== perRpc[1][n + m + j]) return false;       /* preview */
+      if (decodeUint(perRpc[0][n + j]) !== 0n) return false;                 /* unclaimed means 0 */
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 /* Export for the Node verification harness. */
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     CAT42: CAT42, GUIDE: GUIDE,
     SEL: SEL, RPCS: RPCS, TIER_MUL: TIER_MUL, I18N: I18N,
+    crossCheck: crossCheck, crossCheckOwned: crossCheckOwned, LAG_LIMIT: LAG_LIMIT,
     encodeUint: encodeUint, encodeAddress: encodeAddress, encodeClaimMany: encodeClaimMany,
     decodeUint: decodeUint, decodeAddress: decodeAddress, chunkArray: chunkArray,
     formatCAT: formatCAT, rpcBatch: rpcBatch, rpcSingle: rpcSingle,
@@ -419,7 +539,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     try { localStorage.removeItem("cat42claim_prepaid_fee_v2"); } catch (e) {}
     try { localStorage.removeItem("cat42claim_pending_fee_v1"); } catch (e) {}
 
-    var state = { address: null, scan: null, claiming: false, connecting: false, scanSeq: 0 };
+    var state = { address: null, scan: null, claiming: false, connecting: false, scanSeq: 0, lastCross: null, crossBlocked: false };
 
     function applyI18n() {
       document.title = lang === "ja" ? "CAT42 請求 — ガイドを持っている方へ" : "CAT42 Claim — for Guide holders";
@@ -468,13 +588,25 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
       el.className = "result" + (kind ? " " + kind : "");
     }
 
-    /* global stats, no wallet needed */
+    /* global stats, no wallet needed — cross-validated between the
+       two public RPCs (see crossCheck): on disagreement the numbers
+       stay hidden rather than showing one node's unverified data. */
+    function renderStats(st) {
+      if (st.claims !== null) $("statClaims").textContent = formatInt(st.claims);
+      if (st.vaultWei !== null) $("statVault").textContent = formatCAT(BigInt(st.vaultWei)) + " CAT42";
+      if (st.guideIssued !== null) $("statGuides").textContent = formatInt(st.guideIssued);
+    }
     async function loadStats() {
       try {
-        var st = await getGlobalStats();
-        if (st.claims !== null) $("statClaims").textContent = formatInt(st.claims);
-        if (st.vaultWei !== null) $("statVault").textContent = formatCAT(BigInt(st.vaultWei)) + " CAT42";
-        if (st.guideIssued !== null) $("statGuides").textContent = formatInt(st.guideIssued);
+        var cross = await crossCheck(null);
+        if (cross.mode === "both") {
+          if (!cross.agree) { setResult($("statsError"), S.rpcDisagree, "error"); return; }
+          renderStats(cross.stats);
+          return;
+        }
+        var st = await getGlobalStats(cross.diverged && cross.aheadUrl ? [cross.aheadUrl] : undefined);
+        renderStats(st);
+        if (cross.diverged) $("statsNote").textContent = S.rpcLagging;
       } catch (e) {
         setResult($("statsError"), S.statsError, "error");
       }
@@ -612,12 +744,27 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
          change mid-scan) must not let the slower, older scan render
          last and overwrite the newer result. */
       var seq = ++state.scanSeq;
+      /* Cross-validate the two public RPCs BEFORE scanning: if their
+         anchor values disagree at the same pinned block, fail closed
+         (no scan, no claim panel) instead of acting on one node's
+         unverified data. */
+      var cross = null;
+      try { cross = await crossCheck(state.address); } catch (e) { cross = null; }
+      if (seq !== state.scanSeq) return;
+      if (cross && cross.mode === "both" && !cross.agree) {
+        setResult($("connectResult"), S.rpcDisagree, "error");
+        return;
+      }
+      state.lastCross = cross;
+      state.crossBlocked = false;
       $("mainPanel").hidden = false;
       $("claimBtn").disabled = true;
       setResult($("claimResult"), "");
       $("claimProgress").textContent = "";
       try {
         var scan = await scanOwnedGuides(state.address, {
+          blockTag: cross ? cross.block : undefined,
+          rpcUrls: cross && cross.diverged ? [cross.aheadUrl] : undefined,
           onProgress: function (done, total) {
             if (seq === state.scanSeq) $("scanProgress").textContent = t("searching", { done: formatInt(done), total: formatInt(total) });
           }
@@ -625,7 +772,25 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
         if (seq !== state.scanSeq) return;
         $("scanProgress").textContent = "";
         renderScan(scan);
-        await refreshCatBalance();
+        if (cross && cross.mode === "both") {
+          /* Verify the actionable set itself on both RPCs at the
+             pinned block; on any mismatch the data is shown but the
+             claim stays blocked until a rescan agrees. */
+          var ownedOk = await crossCheckOwned(state.address, scan.ownedIds,
+            scan.unclaimed.map(function (u) { return u.id; }), cross.block);
+          if (seq !== state.scanSeq) return;
+          if (!ownedOk || (cross.guideBalance !== null && scan.balanceOfCount !== cross.guideBalance)) {
+            state.crossBlocked = true;
+            $("claimBtn").disabled = true;
+            setResult($("claimResult"), S.rpcDisagree, "error");
+          }
+          if (cross.catBalanceWei !== null) {
+            $("catBalanceLine").textContent = t("yourCat", { amount: formatCAT(BigInt(cross.catBalanceWei)) });
+          } else { await refreshCatBalance(); }
+        } else {
+          if (cross && cross.diverged) setResult($("claimResult"), S.rpcLagging, "");
+          await refreshCatBalance();
+        }
       } catch (e) {
         if (seq !== state.scanSeq) return;
         $("scanProgress").textContent = "";
@@ -710,6 +875,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
          the list is rescanned, instead of claiming nothing happened. */
     async function claimAll() {
       if (state.claiming || !state.scan) return;
+      if (state.crossBlocked) { setResult($("claimResult"), S.rpcDisagree, "error"); return; }
       var addr = state.address;
       var ids = state.scan.unclaimed.map(function (u) { return u.id; });
       if (ids.length === 0) {
@@ -839,6 +1005,8 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     function resetWalletUI() {
       state.address = null;
       state.scan = null;
+      state.lastCross = null;
+      state.crossBlocked = false;
       $("accountBox").hidden = true;
       $("connectBox").hidden = false;
       $("mainPanel").hidden = true;

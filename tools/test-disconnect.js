@@ -49,6 +49,10 @@ window.ethereum = {
 };
 window.fetch = async (url, opts) => {
   const payload = JSON.parse(opts.body);
+  if (!Array.isArray(payload)) {
+    if (payload.method === "eth_blockNumber") return { ok: true, json: async () => ({ jsonrpc: "2.0", id: payload.id, result: "0x1000" }) };
+    throw new Error("unexpected single request " + payload.method);
+  }
   const out = payload.map((c) => {
     const to = (c.params[0].to || "").toLowerCase();
     const d = c.params[0].data;
