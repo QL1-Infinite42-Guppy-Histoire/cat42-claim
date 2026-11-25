@@ -18,6 +18,9 @@ header { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, v
 header > .header-in { max-width: 1120px; margin: 0 auto; padding: 10px 20px; display: flex; align-items: center; gap: 8px; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .brand img { width: 38px; height: 38px; border-radius: 50%; background: #fff; border: 2px solid #f5c542; object-fit: cover; }
+/* 42 Chain badge on the token icon's corner (the network-badge pattern). */
+.brand-mark { position: relative; flex: none; display: inline-flex; }
+.brand-mark .chain-badge { position: absolute; right: -4px; bottom: -4px; width: 17px; height: 17px; border-radius: 5px; border: 2px solid var(--card); background: #000; object-fit: cover; }
 .brand-emoji { font-size: 32px; }
 h1 { font-size: 21px; margin: 0; line-height: 1.2; white-space: nowrap; font-weight: 800; letter-spacing: .01em; }
 .sub { color: var(--muted); margin: 1px 0 0; font-size: 12px; white-space: nowrap; }

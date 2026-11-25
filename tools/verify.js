@@ -126,7 +126,7 @@ function idsOf(html) {
     check(`${name} has #claimBtn`, html.includes('id="claimBtn"'));
     check(`${name} has #mainPanel`, html.includes('id="mainPanel"'));
     check(`${name} loads app.js?v=6`, html.includes("app.js?v=6"));
-    check(`${name} loads style.css?v=5`, html.includes("style.css?v=5"));
+    check(`${name} loads style.css?v=6`, html.includes("style.css?v=6"));
     check(`${name} mentions no faucet/fee markup`, !/faucet|feePanel|feeBox/.test(html));
   }
   const enIds = [...idsOf(enHtml)].sort();
@@ -204,6 +204,18 @@ function idsOf(html) {
     check(`${name} header button opens the disconnect dialog`, html.includes("__cat42OpenConnDialog"));
     check(`${name} has the dialog element`, html.includes('<dialog id="connDlg"'));
   }
+
+  // 12) 42 logo application (added 2026-11-25): favicon + header chain badge
+  const indexHtml = fs.readFileSync(path.join(__dirname, "..", "docs", "index.html"), "utf8");
+  for (const f of ["logo42.png", "favicon.png", "apple-touch-icon.png"]) {
+    check(`docs/${f} exists`, fs.existsSync(path.join(__dirname, "..", "docs", f)));
+  }
+  for (const [name, html] of [["en.html", enHtml], ["ja.html", jaHtml]]) {
+    check(`${name} has the favicon link`, html.includes('<link rel="icon" type="image/png" href="favicon.png">'));
+    check(`${name} has the apple-touch-icon link`, html.includes('<link rel="apple-touch-icon" href="apple-touch-icon.png">'));
+    check(`${name} header carries the 42 chain badge`, html.includes('class="chain-badge" src="logo42.png"'));
+  }
+  check("index.html has the favicon link", indexHtml.includes('<link rel="icon" type="image/png" href="favicon.png">'));
 
   console.log(failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);
