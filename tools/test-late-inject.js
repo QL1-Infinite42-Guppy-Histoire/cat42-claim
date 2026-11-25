@@ -90,6 +90,11 @@ const waitFor = async (fn, what) => {
   listeners["accountsChanged"]([]);
   check("accountsChanged([]) resets the UI", $("accountBox").hidden && !$("connectBox").hidden);
 
+  // 5) With no session, a wallet-side account switch must NOT connect
+  listeners["accountsChanged"]([OTHER]);
+  await new Promise(r => setTimeout(r, 150));
+  check("wallet-side switch does not silently connect", $("accountBox").hidden && $("mainPanel").hidden && $("walletAddr").textContent === "—");
+
   console.log(failures === 0 ? "ALL LATE-INJECTION CHECKS PASSED" : failures + " CHECK(S) FAILED");
   process.exit(failures === 0 ? 0 : 1);
 })().catch(e => { console.error("TEST ERROR", e); process.exit(2); });

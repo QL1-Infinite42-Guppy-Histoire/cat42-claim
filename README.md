@@ -39,8 +39,8 @@
 | Guide NFT（"The Guide"、ERC-721） | `0xF349E469C474048DEd6F9b914309E76880ED1bbD` |
 
 - エクスプローラー: https://scan.infinitedrive.xyz
-- CAT42 アイコン: https://raw.githubusercontent.com/maze369/token-icons/main/icons/0x7386719ebbbeb4d810ff89027bfb8a1cdf696310.jpg
-  （読み込めない場合は 🐱 で代替表示します）
+- CAT42 アイコン: `docs/cat42-icon.jpg` として同梱（自己ホスト、2026-11-24〜。
+  以前は外部ホットリンクだったものを取り込んだ。読み込めない場合は 🐱 で代替表示します）
 
 ## 技術メモ
 

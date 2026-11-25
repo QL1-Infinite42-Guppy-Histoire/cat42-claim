@@ -419,7 +419,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     try { localStorage.removeItem("cat42claim_prepaid_fee_v2"); } catch (e) {}
     try { localStorage.removeItem("cat42claim_pending_fee_v1"); } catch (e) {}
 
-    var state = { address: null, scan: null, claiming: false };
+    var state = { address: null, scan: null, claiming: false, connecting: false, scanSeq: 0 };
 
     function applyI18n() {
       document.title = lang === "ja" ? "CAT42 請求 — ガイドを持っている方へ" : "CAT42 Claim — for Guide holders";
@@ -608,6 +608,10 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
 
     async function scanAndRender() {
       if (!state.address) return;
+      /* Sequence guard: overlapping scans (rescan spam, an account
+         change mid-scan) must not let the slower, older scan render
+         last and overwrite the newer result. */
+      var seq = ++state.scanSeq;
       $("mainPanel").hidden = false;
       $("claimBtn").disabled = true;
       setResult($("claimResult"), "");
@@ -615,13 +619,15 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
       try {
         var scan = await scanOwnedGuides(state.address, {
           onProgress: function (done, total) {
-            $("scanProgress").textContent = t("searching", { done: formatInt(done), total: formatInt(total) });
+            if (seq === state.scanSeq) $("scanProgress").textContent = t("searching", { done: formatInt(done), total: formatInt(total) });
           }
         });
+        if (seq !== state.scanSeq) return;
         $("scanProgress").textContent = "";
         renderScan(scan);
         await refreshCatBalance();
       } catch (e) {
+        if (seq !== state.scanSeq) return;
         $("scanProgress").textContent = "";
         setResult($("connectResult"), S.scanFailed, "error");
       }
@@ -633,31 +639,56 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
          the connect button is always shown and the provider is
          re-read fresh on every click. The guidance panel appears only
          when a click truly finds no wallet, and the button stays. */
+      if (state.connecting) return;
       if (!hasWallet()) { $("noWalletPanel").hidden = false; return; }
       $("noWalletPanel").hidden = true;
       wireProviderEvents();
+      state.connecting = true;
+      $("connectBtn").disabled = true;
       try {
         var accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
         if (!accounts || !accounts.length) return;
-        var ok = await ensureChain();
-        if (!ok) { setResult($("connectResult"), S.wrongChain, "error"); $("switchChainBtn").hidden = false; return; }
         state.address = accounts[0];
+        /* The account is approved at this point. Make sure the wallet
+           is really on 42 Chain — and VERIFY it, like claimAll does.
+           If the switch was rejected or silently did not happen, land
+           in a chain-pending state (account shown, the switch button
+           offered, the claim panel still hidden) instead of the old
+           dead end: a wrong-chain message naming a button that sat
+           inside the still-hidden account panel. */
+        try { await ensureChain(); } catch (e) { /* verified just below */ }
+        var chainOk = false;
+        try {
+          var cur = await window.ethereum.request({ method: "eth_chainId" });
+          chainOk = !!(cur && cur.toLowerCase() === CHAIN_ID_HEX);
+        } catch (e) { chainOk = false; }
         $("connectBox").hidden = true;
         $("accountBox").hidden = false;
         $("walletAddr").textContent = state.address;
+        if (!chainOk) {
+          setResult($("connectResult"), S.wrongChain, "error");
+          $("switchChainBtn").hidden = false;
+          return;
+        }
         setResult($("connectResult"), S.connected, "ok");
         await scanAndRender();
       } catch (e) {
         if (e && e.code === 4001) setResult($("connectResult"), S.rejected, "error");
+        else if (e && e.code === -32002) { /* a wallet prompt is already open elsewhere; that attempt decides */ }
         else setResult($("connectResult"), S.wrongChain, "error");
         var sw = $("switchChainBtn"); if (sw && state.address) sw.hidden = false;
+      } finally {
+        state.connecting = false;
+        $("connectBtn").disabled = false;
       }
     }
 
     async function waitReceipt(hash) {
       for (var i = 0; i < 90; i++) {
-        var r = await window.ethereum.request({ method: "eth_getTransactionReceipt", params: [hash] });
-        if (r) return r;
+        try {
+          var r = await window.ethereum.request({ method: "eth_getTransactionReceipt", params: [hash] });
+          if (r) return r;
+        } catch (e) { /* transient read error: keep polling, the tx may still land */ }
         await new Promise(function (res) { setTimeout(res, 2000); });
       }
       return null;
@@ -690,6 +721,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
       setResult($("claimResult"), "");
       var chunks = chunkArray(ids, 100);
       var hashes = [];
+      var confirmed = 0;
       async function chainIs42() {
         try {
           var cur = await window.ethereum.request({ method: "eth_chainId" });
@@ -729,6 +761,7 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
           if (receipt.status !== "0x1") {
             throw Object.assign(new Error("tx failed"), { hash: hash });
           }
+          confirmed++;
         }
         var after = await getCatBalance(addr);
         var received = (before !== null && after !== null && after > before) ? (after - before) : null;
@@ -754,24 +787,38 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
         var box2 = $("claimResult");
         box2.innerHTML = "";
         var m = document.createElement("div");
-        if (partial) {
+        if (e && e.kind === "timeout") {
+          /* A timed-out chunk is UNCONFIRMED — it must never be
+             counted as done (the old code counted sent hashes, so a
+             first-chunk timeout read as "1 of N completed"). Report
+             the timeout plainly, plus any chunks that DID confirm as
+             a separate line. */
+          box2.className = "result error";
+          m.textContent = S.claimTimeout;
+          box2.appendChild(m);
+          if (confirmed > 0) {
+            var m2 = document.createElement("div");
+            m2.textContent = t("claimPartial", { done: confirmed, total: chunks.length });
+            box2.appendChild(m2);
+          }
+        } else if (partial) {
           box2.className = "result ok";
-          m.textContent = t("claimPartial", { done: hashes.length, total: chunks.length });
+          m.textContent = t("claimPartial", { done: confirmed, total: chunks.length });
+          box2.appendChild(m);
         } else if (e && e.kind === "chain") {
           box2.className = "result error";
           m.textContent = S.wrongChain;
           var sw2 = $("switchChainBtn"); if (sw2) sw2.hidden = false;
-        } else if (e && e.kind === "timeout") {
-          box2.className = "result error";
-          m.textContent = S.claimTimeout;
+          box2.appendChild(m);
         } else if (e && e.code === 4001) {
           box2.className = "result error";
           m.textContent = S.rejected;
+          box2.appendChild(m);
         } else {
           box2.className = "result error";
           m.textContent = S.txFailed;
+          box2.appendChild(m);
         }
-        box2.appendChild(m);
         if (e && e.hash) box2.appendChild(txLinkDiv(e.hash));
         else hashes.forEach(function (h) { box2.appendChild(txLinkDiv(h)); });
         if (state.scan && state.scan.unclaimed.length > 0) $("claimBtn").disabled = false;
@@ -833,6 +880,9 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
           resetWalletUI();
           return;
         }
+        /* No session on this site yet: a wallet-side account switch
+           must not silently "connect" — connecting is the button. */
+        if (!state.address) return;
         state.address = accs[0];
         $("walletAddr").textContent = state.address;
         scanAndRender();

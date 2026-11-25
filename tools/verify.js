@@ -125,7 +125,7 @@ function idsOf(html) {
     }
     check(`${name} has #claimBtn`, html.includes('id="claimBtn"'));
     check(`${name} has #mainPanel`, html.includes('id="mainPanel"'));
-    check(`${name} loads app.js?v=7`, html.includes("app.js?v=7"));
+    check(`${name} loads app.js?v=8`, html.includes("app.js?v=8"));
     check(`${name} loads style.css?v=6`, html.includes("style.css?v=6"));
     check(`${name} mentions no faucet/fee markup`, !/faucet|feePanel|feeBox/.test(html));
   }
@@ -245,6 +245,22 @@ function idsOf(html) {
     appJs.includes('$("noWalletPanel").hidden = true;'));
   check("provider events wire lazily (late-injected wallets included)",
     appJs.includes("function wireProviderEvents()") && appJs.includes("wiredProvider === window.ethereum"));
+
+  // 15) Full-audit fixes (2026-11-25): connect in-flight guard and
+  // -32002 tolerance; connect verifies the chain and lands in a
+  // reachable chain-pending state; claim timeouts never count an
+  // unconfirmed chunk as done (confirmed counter); receipt polling
+  // tolerates transient read errors; scans are sequence-guarded; a
+  // wallet-side account switch cannot silently connect.
+  // (Behaviour: tools/test-wrong-chain.js, tools/test-late-inject.js.)
+  check("connect() has an in-flight guard", appJs.includes("if (state.connecting) return;") && appJs.includes("state.connecting = false;"));
+  check("connect() tolerates an already-pending wallet prompt (-32002)", appJs.includes("e.code === -32002"));
+  check("connect() verifies the chain after the switch attempt", appJs.includes("chainOk") && appJs.includes('cur.toLowerCase() === CHAIN_ID_HEX'));
+  check("claim counts only confirmed chunks", appJs.includes("var confirmed = 0;") && appJs.includes('t("claimPartial", { done: confirmed, total: chunks.length })'));
+  check("timeout branch reports the timeout before any partial line", appJs.indexOf('e.kind === "timeout"') < appJs.indexOf('} else if (partial) {'));
+  check("receipt polling tolerates transient read errors", appJs.includes("transient read error: keep polling"));
+  check("scans are sequence-guarded", appJs.includes("var seq = ++state.scanSeq;") && appJs.includes("if (seq !== state.scanSeq) return;"));
+  check("wallet-side account switch cannot silently connect", appJs.includes("if (!state.address) return;"));
 
   console.log(failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);

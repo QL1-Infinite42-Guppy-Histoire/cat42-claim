@@ -5,14 +5,18 @@
    answered by the stub and recorded.
    Setup: npm install jsdom (dev-only, not a site dependency), then
    run: node tools/test-disconnect.js */
+const fs = require("fs");
+const { JSDOM } = require("jsdom");
+
+const ADDR = "0x1111111111111111111111111111111111111111";
 const OTHER = "0x2222222222222222222222222222222222222222";
 const GUIDE = "0xF349E469C474048DEd6F9b914309E76880ED1bbD".toLowerCase();
 const W = (v) => "0x" + BigInt(v).toString(16).padStart(64, "0");
 const AW = (a) => "0x" + "0".repeat(24) + a.slice(2).toLowerCase();
 
-let html = fs.readFileSync("/home/hatch/workspace/cat42-claim/docs/ja.html", "utf8");
+let html = fs.readFileSync(__dirname + "/../docs/ja.html", "utf8");
 html = html.replace(/<script src="app\.js[^"]*"><\/script>/, "");
-const appJs = fs.readFileSync("/home/hatch/workspace/cat42-claim/docs/app.js", "utf8");
+const appJs = fs.readFileSync(__dirname + "/../docs/app.js", "utf8");
 
 const dom = new JSDOM(html, { url: "https://cat.id42.win/ja.html", runScripts: "dangerously", pretendToBeVisual: true });
 const { window } = dom;
