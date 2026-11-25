@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@500;600;700;800&family=M+PLUS+Rounded+1c:wght@500;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <header>
@@ -82,6 +82,7 @@
       <div class="row">
         <button type="button" id="rescanBtn" class="small-btn">Check again</button>
         <button type="button" id="switchChainBtn" class="small-btn" hidden>Switch to 42 Chain</button>
+        <button type="button" id="disconnectOpenBtn" class="small-btn danger">Disconnect</button>
       </div>
     </div>
     <p class="result" id="connectResult" role="status"></p>
@@ -130,11 +131,20 @@
   </section>
 </main>
 
+<dialog id="connDlg" class="conn-dlg">
+  <h3 id="connectedTitle">Wallet connected</h3>
+  <p class="mono conn-addr" id="connAddr">—</p>
+  <div class="conn-dlg-btns">
+    <button type="button" id="disconnectBtn" class="small-btn danger">Disconnect</button>
+    <button type="button" id="connClose" class="small-btn">Close</button>
+  </div>
+</dialog>
+
 <footer>
   <p id="footerText"></p>
 </footer>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 <script>
 (function(){
   var btn=document.getElementById("themeToggle");
@@ -159,7 +169,7 @@
     else{hb.textContent=def;hb.classList.remove("connected");}
   }
   hb.addEventListener("click",function(){
-    if(abox&&!abox.hidden){var p=document.getElementById("connectPanel");if(p)p.scrollIntoView({behavior:"smooth",block:"center"});}
+    if(abox&&!abox.hidden){if(window.__cat42OpenConnDialog){window.__cat42OpenConnDialog();}else{var p=document.getElementById("connectPanel");if(p)p.scrollIntoView({behavior:"smooth",block:"center"});}}
     else if(cb){cb.click();}
   });
   if(window.MutationObserver){

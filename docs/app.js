@@ -78,6 +78,10 @@ var I18N = {
     checkingClaims: "Checking which Guides you have already claimed for…",
     mismatch: "Note: we found {found} Guides by scanning, but your wallet reports {expected}. The {expected} number is the one to trust — please tap “Check again”. If it still differs, the list below may be incomplete.",
     connected: "Connected. Looking for your Guides…",
+    connectedTitle: "Wallet connected",
+    disconnectBtn: "Disconnect",
+    dialogClose: "Close",
+    disconnected: "Disconnected.",
     rejected: "You cancelled in your wallet. Nothing happened — tap Connect when you are ready.",
     wrongChain: "Your wallet is on a different network. Please switch to 42 Chain.",
     switchOk: "Switched to 42 Chain.",
@@ -139,6 +143,10 @@ var I18N = {
     checkingClaims: "請求済みかどうかを調べています…",
     mismatch: "注意: スキャンで見つかったガイドは {found} 個でしたが、ウォレット側の数は {expected} 個です。信頼できるのは {expected} 個の方です — 「もう一度調べる」を押してください。それでも違う場合、下の一覧が不完全なことがあります。",
     connected: "つながりました。ガイドを探しています…",
+    connectedTitle: "ウォレット接続中",
+    disconnectBtn: "接続を解除",
+    dialogClose: "閉じる",
+    disconnected: "接続を解除しました。",
     rejected: "ウォレットでキャンセルされました。何も起きていません — 準備ができたらもう一度つないでください。",
     wrongChain: "ウォレットが別のネットワークになっています。42 Chain に切り替えてください。",
     switchOk: "42 Chain に切り替えました。",
@@ -423,6 +431,8 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
         statsNote: "statsNote", noWalletTitle: "noWalletTitle", noWalletText: "noWalletText",
         connectBtn: "connectBtn", connectNote: "connectNote", yourWalletLabel: "yourWalletLabel",
         rescanBtn: "rescanBtn", switchChainBtn: "switchChainBtn",
+        connectedTitle: "connectedTitle", disconnectBtn: "disconnectBtn",
+        disconnectOpenBtn: "disconnectBtn", connClose: "dialogClose",
         totalLabel: "totalLabel", totalNote: "totalNote",
         ownedLabel: "ownedLabel", unclaimedLabel: "unclaimedLabel", claimedLabel: "claimedLabel",
         unclaimedTitle: "unclaimedTitle", claimedSummary: "claimedSummary",
@@ -763,10 +773,53 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
       }
     }
 
+    /* Disconnect dialog — same pattern as qomdex.com (the reference
+       implementation): tapping the connected button opens a small
+       dialog showing the full address, with a Disconnect choice.
+       Disconnect asks the wallet to revoke this site's account
+       permission where the wallet supports it
+       (wallet_revokePermissions), so the permission itself is gone and
+       the next Connect prompts again; wallets without support fall
+       back to a site-side disconnect only. This site never reconnects
+       silently on load, so nothing resurrects the session either way. */
+    function resetWalletUI() {
+      state.address = null;
+      state.scan = null;
+      $("accountBox").hidden = true;
+      $("connectBox").hidden = false;
+      $("mainPanel").hidden = true;
+      $("walletAddr").textContent = "—";
+      $("catBalanceLine").textContent = "";
+    }
+    function openConnDialog() {
+      if (!state.address) return;
+      $("connAddr").textContent = state.address;
+      var d = $("connDlg");
+      if (d && d.showModal) d.showModal();
+    }
+    function closeConnDialog() {
+      var d = $("connDlg");
+      if (d && d.open) d.close();
+    }
+    async function disconnectWallet() {
+      if (hasWallet()) {
+        try {
+          await window.ethereum.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] });
+        } catch (e) { /* wallet without revoke support: local disconnect only */ }
+      }
+      closeConnDialog();
+      resetWalletUI();
+      setResult($("connectResult"), S.disconnected, "ok");
+    }
+    window.__cat42OpenConnDialog = openConnDialog;
+
     /* wire up */
     applyI18n();
     if (!hasWallet()) $("noWalletPanel").hidden = false;
     $("connectBtn").addEventListener("click", connect);
+    $("disconnectBtn").addEventListener("click", disconnectWallet);
+    $("disconnectOpenBtn").addEventListener("click", openConnDialog);
+    $("connClose").addEventListener("click", closeConnDialog);
     $("rescanBtn").addEventListener("click", scanAndRender);
     $("claimBtn").addEventListener("click", claimAll);
     $("switchChainBtn").addEventListener("click", async function () {
@@ -783,8 +836,8 @@ if (typeof document !== "undefined" && typeof window !== "undefined") {
     if (hasWallet() && window.ethereum.on) {
       window.ethereum.on("accountsChanged", function (accs) {
         if (!accs || !accs.length) {
-          state.address = null; state.scan = null;
-          $("accountBox").hidden = true; $("connectBox").hidden = false; $("mainPanel").hidden = true;
+          closeConnDialog();
+          resetWalletUI();
           return;
         }
         state.address = accs[0];

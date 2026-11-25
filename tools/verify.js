@@ -125,7 +125,8 @@ function idsOf(html) {
     }
     check(`${name} has #claimBtn`, html.includes('id="claimBtn"'));
     check(`${name} has #mainPanel`, html.includes('id="mainPanel"'));
-    check(`${name} loads app.js?v=5`, html.includes("app.js?v=5"));
+    check(`${name} loads app.js?v=6`, html.includes("app.js?v=6"));
+    check(`${name} loads style.css?v=5`, html.includes("style.css?v=5"));
     check(`${name} mentions no faucet/fee markup`, !/faucet|feePanel|feeBox/.test(html));
   }
   const enIds = [...idsOf(enHtml)].sort();
@@ -187,6 +188,21 @@ function idsOf(html) {
       check("stubbed scan: healthy reads still scan fine", sOk.ownedIds.length === 1 && sOk.unclaimed.length === 1 && sOk.unclaimed[0].id === 2, JSON.stringify(sOk.ownedIds));
     } catch (e) { check("stubbed scan: healthy reads still scan fine", false, String(e && e.message)); }
     finally { global.fetch = realFetch; }
+  }
+
+  // 11) disconnect UI, qomdex.com pattern (added 2026-11-25)
+  check("disconnect calls wallet_revokePermissions", appJs.includes("wallet_revokePermissions"));
+  check("disconnect revokes eth_accounts permission", appJs.includes("params: [{ eth_accounts: {} }]"));
+  check("dialog opener exposed for the header button", appJs.includes("window.__cat42OpenConnDialog = openConnDialog"));
+  check("disconnect copy exists (en/ja)", typeof app.I18N.en.disconnectBtn === "string" && typeof app.I18N.ja.disconnectBtn === "string"
+    && typeof app.I18N.en.connectedTitle === "string" && typeof app.I18N.ja.connectedTitle === "string"
+    && typeof app.I18N.en.disconnected === "string" && typeof app.I18N.ja.disconnected === "string");
+  for (const [name, html] of [["en.html", enHtml], ["ja.html", jaHtml]]) {
+    for (const id of ["connDlg", "connAddr", "disconnectBtn", "connClose", "disconnectOpenBtn", "connectedTitle"]) {
+      check(`${name} has #${id}`, html.includes(`id="${id}"`));
+    }
+    check(`${name} header button opens the disconnect dialog`, html.includes("__cat42OpenConnDialog"));
+    check(`${name} has the dialog element`, html.includes('<dialog id="connDlg"'));
   }
 
   console.log(failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
