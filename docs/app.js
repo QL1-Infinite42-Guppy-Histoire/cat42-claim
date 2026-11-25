@@ -451,18 +451,17 @@ async function readAnchors(rpcUrl, owner, blockTag) {
 async function crossCheck(owner, rpcUrls) {
   var urls = rpcUrls || RPCS;
   if (urls.length < 2) return { mode: "single", block: "latest" };
-  var blocks = [];
-  for (var i = 0; i < 2; i++) {
-    try { blocks.push(await rpcBlockNumber(urls[i])); }
-    catch (e) { return { mode: "single", block: "latest" }; }
-  }
+  var blocks;
+  try {
+    blocks = await Promise.all([rpcBlockNumber(urls[0]), rpcBlockNumber(urls[1])]);
+  } catch (e) { return { mode: "single", block: "latest" }; }
   if (Math.abs(blocks[0] - blocks[1]) > LAG_LIMIT) {
     return { mode: "single", block: "latest", diverged: true, aheadUrl: blocks[0] > blocks[1] ? urls[0] : urls[1] };
   }
   var pin = "0x" + Math.min(blocks[0], blocks[1]).toString(16);
   try {
-    var a = await readAnchors(urls[0], owner, pin);
-    var b = await readAnchors(urls[1], owner, pin);
+    var both = await Promise.all([readAnchors(urls[0], owner, pin), readAnchors(urls[1], owner, pin)]);
+    var a = both[0], b = both[1];
     var agree = a.claims === b.claims && a.vaultWei === b.vaultWei && a.guideIssued === b.guideIssued &&
       a.guideBalance === b.guideBalance && a.catBalanceWei === b.catBalanceWei;
     return {
