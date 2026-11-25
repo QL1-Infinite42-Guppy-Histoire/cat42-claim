@@ -217,6 +217,22 @@ function idsOf(html) {
   }
   check("index.html has the favicon link", indexHtml.includes('<link rel="icon" type="image/png" href="favicon.png">'));
 
+  // 13) Japanese copy rule (2026-11-25): every kanji in the Japanese copy
+  // must be in the jōyō list (2,136 chars, 2010 revised table); words
+  // whose kanji are outside the list are written in hiragana instead
+  // (e.g. つなぐ, もらう). List: tools/joyo-kanji.txt, extracted from
+  // the Wikipedia "List of jōyō kanji" table (count validated = 2136).
+  const joyo = new Set(fs.readFileSync(path.join(__dirname, "joyo-kanji.txt"), "utf8"));
+  check("jōyō reference list holds exactly 2136 characters", joyo.size === 2136, String(joyo.size));
+  const isKanji = (ch) => { const c = ch.codePointAt(0); return (c >= 0x3400 && c <= 0x4DBF) || (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0xF900 && c <= 0xFAFF) || (c >= 0x20000 && c <= 0x2A6DF); };
+  const nonJoyoIn = (text) => [...new Set([...String(text)].filter((ch) => isKanji(ch) && !joyo.has(ch)))];
+  for (const [k, v] of Object.entries(app.I18N.ja)) {
+    check(`I18N.ja.${k} uses jōyō kanji only`, nonJoyoIn(v).length === 0, nonJoyoIn(v).join(""));
+  }
+  for (const [name, text] of [["ja.html", jaHtml], ["index.html", indexHtml], ["app.js (raw)", appSrc]]) {
+    check(`${name} uses jōyō kanji only`, nonJoyoIn(text).length === 0, nonJoyoIn(text).join(""));
+  }
+
   console.log(failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);
 })().catch(e => { console.error("HARNESS ERROR", e); process.exit(2); });
