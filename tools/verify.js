@@ -229,7 +229,7 @@ function idsOf(html) {
   for (const [k, v] of Object.entries(app.I18N.ja)) {
     check(`I18N.ja.${k} uses jōyō kanji only`, nonJoyoIn(v).length === 0, nonJoyoIn(v).join(""));
   }
-  for (const [name, text] of [["ja.html", jaHtml], ["index.html", indexHtml], ["app.js (raw)", appSrc]]) {
+  for (const [name, text] of [["ja.html", jaHtml], ["index.html", indexHtml], ["app.js (raw)", appJs]]) {
     check(`${name} uses jōyō kanji only`, nonJoyoIn(text).length === 0, nonJoyoIn(text).join(""));
   }
 
@@ -238,13 +238,13 @@ function idsOf(html) {
   // inject window.ethereum late. The guidance panel may appear only
   // after a click finds no wallet, and must hide again once one is found.
   // (End-to-end behaviour: tools/test-late-inject.js, jsdom.)
-  check("page load never pre-shows the no-wallet guidance", !/applyI18n\(\);\s*if \(!hasWallet\(\)\)/.test(appSrc));
+  check("page load never pre-shows the no-wallet guidance", !/applyI18n\(\);\s*if \(!hasWallet\(\)\)/.test(appJs));
   check("connect() shows the guidance only when a click finds no wallet",
-    appSrc.includes('if (!hasWallet()) { $("noWalletPanel").hidden = false; return; }'));
+    appJs.includes('if (!hasWallet()) { $("noWalletPanel").hidden = false; return; }'));
   check("connect() hides the guidance again once a wallet is found",
-    appSrc.includes('$("noWalletPanel").hidden = true;'));
+    appJs.includes('$("noWalletPanel").hidden = true;'));
   check("provider events wire lazily (late-injected wallets included)",
-    appSrc.includes("function wireProviderEvents()") && appSrc.includes("wiredProvider === window.ethereum"));
+    appJs.includes("function wireProviderEvents()") && appJs.includes("wiredProvider === window.ethereum"));
 
   console.log(failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);
